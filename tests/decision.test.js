@@ -37,6 +37,24 @@ test("routes low-confidence FAQ misses to needs_review", () => {
   assert.match(result.handoffReason, /FAQ/);
 });
 
+test("asks for missing product conditions without returning products", () => {
+  const result = decideNextAction({
+    classification: {
+      intent: "product_recommendation",
+      confidence: 0.83,
+      tone: "neutral",
+      need_human: false
+    },
+    matchedFaq: null,
+    recommendedProducts: [],
+    missingProductFields: ["budget", "use_case"],
+    replyGenerationOk: true
+  });
+
+  assert.equal(result.decision, "auto_reply");
+  assert.match(result.reasons[0], /條件不足/);
+});
+
 test("allows product recommendations when products are available", () => {
   const result = decideNextAction({
     classification: {

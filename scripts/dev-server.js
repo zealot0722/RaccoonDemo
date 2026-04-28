@@ -4,6 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import chatHandler from "../api/chat.js";
+import feedbackHandler from "../api/feedback.js";
 import healthHandler from "../api/health.js";
 import ticketsHandler from "../api/tickets/index.js";
 import replyHandler from "../api/tickets/[id]/reply.js";
@@ -15,6 +16,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === "/api/chat") return chatHandler(req, res);
+  if (url.pathname === "/api/feedback") return feedbackHandler(req, res);
   if (url.pathname === "/api/health") return healthHandler(req, res);
   if (url.pathname === "/api/tickets") return ticketsHandler(req, res);
 

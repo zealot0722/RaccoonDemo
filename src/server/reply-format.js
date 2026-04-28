@@ -1,5 +1,5 @@
 export function formatAssistantReply(value) {
-  return insertSentenceBreaks(stripMarkdown(String(value || ""))).trim();
+  return insertSentenceBreaks(enforceCustomerPronouns(stripMarkdown(String(value || "")))).trim();
 }
 
 export function stripMarkdown(value) {
@@ -8,6 +8,13 @@ export function stripMarkdown(value) {
     .replace(/__([^_]+)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^\s*[-*]\s+/gm, "");
+}
+
+export function enforceCustomerPronouns(value) {
+  return value
+    .replace(/你們/g, "您")
+    .replace(/妳們/g, "您")
+    .replace(/[你妳]/g, "您");
 }
 
 function insertSentenceBreaks(value) {

@@ -8,10 +8,10 @@ const memory = {
       ticket_no: "T001",
       customer_id: "demo",
       status: "needs_review",
-      summary: "使用者要求真人客服",
+      summary: "客戶要求真人客服",
       intent: "human_handoff",
       priority: "normal",
-      handoff_reason: "使用者明確要求真人客服，建立待處理工單。",
+      handoff_reason: "您已要求真人客服協助，系統會建立待處理工單。",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
@@ -33,14 +33,15 @@ const memory = {
       confidence: 0.92,
       tone: "neutral",
       decision: "needs_review",
-      reasons: ["使用者明確要求真人客服，建立待處理工單。"],
+      reasons: ["您已要求真人客服協助，系統會建立待處理工單。"],
       risk_flags: [],
       matched_faq_code: null,
       recommended_product_codes: [],
-      handoff_reason: "使用者明確要求真人客服，建立待處理工單。",
+      handoff_reason: "您已要求真人客服協助，系統會建立待處理工單。",
       created_at: new Date().toISOString()
     }
-  ]
+  ],
+  feedback: []
 };
 
 export function createRepository(config = getConfig()) {
@@ -58,10 +59,20 @@ function createMemoryRepository() {
     async listProducts() {
       return demoProducts;
     },
+    async listRecentMessages(customerId, limit = 10) {
+      const ticketIds = memory.tickets
+        .filter((ticket) => ticket.customer_id === customerId)
+        .map((ticket) => ticket.id);
+
+      return memory.messages
+        .filter((message) => ticketIds.includes(message.ticket_id))
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        .slice(-limit);
+    },
     async createTicket(ticket) {
       const now = new Date().toISOString();
       const record = {
-        id: `demo-ticket-${Date.now()}`,
+        id: `demo-ticket-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         ticket_no: ticket.ticket_no || generateTicketNo(),
         created_at: now,
         updated_at: now,
@@ -81,11 +92,25 @@ function createMemoryRepository() {
     },
     async createAiDecision(decision) {
       const record = {
-        id: `demo-decision-${Date.now()}`,
+        id: `demo-decision-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         created_at: new Date().toISOString(),
         ...decision
       };
       memory.decisions.push(record);
+      return record;
+    },
+    async createFeedback(feedback) {
+      const record = {
+        id: `demo-feedback-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        created_at: new Date().toISOString(),
+        ...feedback
+      };
+      memory.feedback.push(record);
+      const ticket = memory.tickets.find((item) => item.id === feedback.ticket_id);
+      if (ticket) {
+        ticket.status = "closed";
+        ticket.updated_at = new Date().toISOString();
+      }
       return record;
     },
     async listTickets() {
@@ -112,7 +137,10 @@ function hydrateMemoryTicket(ticket) {
   return {
     ...ticket,
     messages: memory.messages.filter((message) => message.ticket_id === ticket.id),
-    ai_decision: memory.decisions.find((decision) => decision.ticket_id === ticket.id) || null
+    ai_decision: memory.decisions.find((decision) => decision.ticket_id === ticket.id) || null,
+    feedback: memory.feedback
+      .filter((feedback) => feedback.ticket_id === ticket.id)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null
   };
 }
 
@@ -138,6 +166,14 @@ function createSupabaseRepository(config) {
     return response.json();
   }
 
+  async function requestOptional(path, options = {}) {
+    try {
+      return await request(path, options);
+    } catch {
+      return null;
+    }
+  }
+
   return {
     mode: "supabase",
     async listFaqArticles() {
@@ -145,6 +181,18 @@ function createSupabaseRepository(config) {
     },
     async listProducts() {
       return request("products?select=*&is_active=eq.true&order=code.asc");
+    },
+    async listRecentMessages(customerId, limit = 10) {
+      const tickets = await request(
+        `tickets?select=id&customer_id=eq.${encodeURIComponent(customerId)}&order=created_at.desc&limit=8`
+      );
+      if (!tickets.length) return [];
+
+      const idList = tickets.map((ticket) => ticket.id).join(",");
+      const messages = await request(
+        `messages?select=*&ticket_id=in.(${idList})&order=created_at.asc`
+      );
+      return messages.slice(-limit);
     },
     async createTicket(ticket) {
       const data = await request("tickets?select=*", {
@@ -167,18 +215,49 @@ function createSupabaseRepository(config) {
       });
       return data[0];
     },
+    async createFeedback(feedback) {
+      const data = await requestOptional("csat_feedback?select=*", {
+        method: "POST",
+        body: JSON.stringify(feedback)
+      });
+
+      await requestOptional(`tickets?id=eq.${encodeURIComponent(feedback.ticket_id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "closed",
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      if (data?.[0]) return data[0];
+
+      const message = await this.createMessage({
+        ticket_id: feedback.ticket_id,
+        role: "system",
+        content: `CSAT 評分：${feedback.score}/5${feedback.comment ? `，意見：${feedback.comment}` : ""}`
+      });
+
+      return {
+        id: message.id,
+        storage: "messages_fallback",
+        created_at: message.created_at,
+        ...feedback
+      };
+    },
     async listTickets() {
       const tickets = await request("tickets?select=*&order=created_at.desc&limit=50");
       return Promise.all(
         tickets.map(async (ticket) => {
-          const [messages, decisions] = await Promise.all([
+          const [messages, decisions, feedback] = await Promise.all([
             request(`messages?select=*&ticket_id=eq.${encodeURIComponent(ticket.id)}&order=created_at.asc`),
-            request(`ai_decisions?select=*&ticket_id=eq.${encodeURIComponent(ticket.id)}&order=created_at.desc&limit=1`)
+            request(`ai_decisions?select=*&ticket_id=eq.${encodeURIComponent(ticket.id)}&order=created_at.desc&limit=1`),
+            requestOptional(`csat_feedback?select=*&ticket_id=eq.${encodeURIComponent(ticket.id)}&order=created_at.desc&limit=1`)
           ]);
           return {
             ...ticket,
             messages,
-            ai_decision: decisions[0] || null
+            ai_decision: decisions[0] || null,
+            feedback: feedback?.[0] || null
           };
         })
       );

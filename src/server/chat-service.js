@@ -3,6 +3,7 @@ import { findBestFaq } from "./faq.js";
 import { classifyMessage, generateReply } from "./llm.js";
 import { formatAssistantReply } from "./reply-format.js";
 import {
+  buildProductRecommendationReply,
   formatMissingProductFields,
   getMissingProductFields,
   recommendProducts
@@ -12,6 +13,7 @@ import { createRepository, generateTicketNo } from "./repository.js";
 export async function handleChat({ message, sessionId }, options = {}) {
   const repo = options.repo || createRepository(options.config);
   const cleanMessage = String(message || "").trim();
+  const customerId = sessionId || "web-demo";
 
   if (!cleanMessage) {
     const error = new Error("message is required");
@@ -19,12 +21,16 @@ export async function handleChat({ message, sessionId }, options = {}) {
     throw error;
   }
 
-  const [faqArticles, products] = await Promise.all([
+  const [faqArticles, products, conversationHistory] = await Promise.all([
     repo.listFaqArticles(),
-    repo.listProducts()
+    repo.listProducts(),
+    repo.listRecentMessages ? repo.listRecentMessages(customerId, 10) : []
   ]);
 
-  const classification = await classifyMessage(cleanMessage, { config: options.config });
+  const classification = await classifyMessage(cleanMessage, {
+    config: options.config,
+    conversationHistory
+  });
   const missingProductFields = getMissingProductFields(classification);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
@@ -49,12 +55,13 @@ export async function handleChat({ message, sessionId }, options = {}) {
     recommendedProducts,
     decision,
     missingProductFields,
+    conversationHistory,
     config: options.config
   }));
 
   const ticket = await repo.createTicket({
     ticket_no: generateTicketNo(),
-    customer_id: sessionId || "web-demo",
+    customer_id: customerId,
     status: decision.decision === "needs_review" ? "needs_review" : "auto_replied",
     summary: classification.summary || cleanMessage.slice(0, 120),
     intent: classification.intent,
@@ -83,7 +90,10 @@ export async function handleChat({ message, sessionId }, options = {}) {
     matched_faq_code: matchedFaq?.code || null,
     recommended_product_codes: recommendedProducts.map((product) => product.code),
     handoff_reason: decision.handoffReason,
-    raw_classification: classification
+    raw_classification: {
+      ...classification,
+      context_message_count: conversationHistory.length
+    }
   });
 
   return {
@@ -109,24 +119,31 @@ async function buildReply({
   recommendedProducts,
   decision,
   missingProductFields,
+  conversationHistory,
   config
 }) {
   if (decision.decision === "needs_review") {
-    return "我已經幫你建立待處理工單，真人客服會接手確認。你也可以補充更多細節，讓客服更快處理。";
+    return "已為您建立待處理工單，真人客服會接手確認。您也可以補充更多細節，讓客服更快處理。";
   }
 
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) {
-    return `我可以幫你推薦商品。請再補充${formatMissingProductFields(missingProductFields)}，例如「1000 元內、送禮」或「新手入門」。`;
+    return `請您再補充${formatMissingProductFields(missingProductFields)}。\n例如預算、用途、送禮或自用情境。`;
+  }
+
+  if (classification.intent === "product_recommendation" && recommendedProducts.length > 0) {
+    return buildProductRecommendationReply(recommendedProducts, classification);
   }
 
   if (classification.intent === "out_of_scope") {
-    return "這個問題超出目前 Raccoon demo 的服務範圍。你可以詢問退換貨、付款、配送、保固，或請我推薦商品。";
+    return "目前我可以協助您查詢退換貨、付款、配送、保固，或協助您挑選商品。";
   }
 
   return generateReply({
     message,
     classification,
     matchedFaq,
-    recommendedProducts
+    recommendedProducts,
+    decision,
+    conversationHistory
   }, { config });
 }

@@ -1,10 +1,10 @@
 const HANDOFF_TEXT = {
-  human_handoff: "使用者明確要求真人客服，建立待處理工單。",
-  complaint: "偵測到客訴或負面情緒，轉交真人客服處理。",
-  angry: "偵測到憤怒語氣，轉交真人客服避免誤判。",
-  low_confidence: "AI 信心度低於門檻，轉交真人客服確認。",
-  faq_miss: "FAQ 查無明確答案且信心度偏低，轉交真人客服確認。",
-  generation_error: "AI 回覆生成失敗，轉交真人客服處理。"
+  human_handoff: "您已要求真人客服協助，系統會建立待處理工單。",
+  complaint: "您提出的是客訴或負面服務體驗，需要真人客服接手。",
+  angry: "偵測到訊息語氣較強烈，需要真人客服優先處理。",
+  low_confidence: "AI 判斷信心不足，需要真人客服確認。",
+  faq_miss: "FAQ 沒有命中足夠明確的答案，需要真人客服確認。",
+  generation_error: "AI 回覆產生失敗，需要真人客服接手。"
 };
 
 export function decideNextAction({
@@ -45,7 +45,7 @@ export function decideNextAction({
   }
 
   if (intent === "product_recommendation" && missingProductFields.length > 0) {
-    reasons.push("商品推薦條件不足，先追問使用者。");
+    reasons.push("商品推薦條件不足，先追問必要條件。");
     return {
       decision: "auto_reply",
       reasons,
@@ -55,7 +55,7 @@ export function decideNextAction({
   }
 
   if (intent === "product_recommendation" && recommendedProducts.length > 0) {
-    reasons.push("已找到符合條件的商品推薦。");
+    reasons.push("已找到符合條件的商品，將商品資訊放入聊天訊息。");
   } else if (intent === "faq" && matchedFaq) {
     reasons.push("已命中 FAQ 知識庫。");
   } else {

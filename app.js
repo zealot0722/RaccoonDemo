@@ -57,7 +57,7 @@ const state = {
   messages: [
     {
       role: "ai",
-      content: "你好，我可以回答退換貨、付款、配送、保固，也可以依預算與用途推薦商品。"
+      content: "您好，歡迎使用 Raccoon 客服。\n請直接描述您的問題。"
     }
   ],
   lastResult: null,
@@ -65,7 +65,8 @@ const state = {
   selectedTicketId: null,
   sessionId: getSessionId(),
   accessCodeRequired: false,
-  accessCode: sessionStorage.getItem("raccoon-demo-access-code") || ""
+  accessCode: sessionStorage.getItem("raccoon-demo-access-code") || "",
+  feedbackSubmittedFor: new Set()
 };
 
 const els = {
@@ -80,11 +81,10 @@ const els = {
   form: document.querySelector("#chat-form"),
   input: document.querySelector("#message-input"),
   sendBtn: document.querySelector("#send-btn"),
-  decisionGrid: document.querySelector("#decision-grid"),
-  reasonList: document.querySelector("#reason-list"),
-  decisionBadge: document.querySelector("#decision-badge"),
-  productList: document.querySelector("#product-list"),
-  productCount: document.querySelector("#product-count"),
+  feedbackPanel: document.querySelector("#feedback-panel"),
+  ratingRow: document.querySelector("#rating-row"),
+  feedbackComment: document.querySelector("#feedback-comment"),
+  feedbackStatus: document.querySelector("#feedback-status"),
   healthPill: document.querySelector("#health-pill"),
   modePill: document.querySelector("#mode-pill"),
   ticketList: document.querySelector("#ticket-list"),
@@ -95,6 +95,7 @@ init();
 
 function init() {
   renderMessages();
+  renderFeedbackPanel();
   bindEvents();
   checkHealth();
   route();
@@ -118,6 +119,12 @@ function bindEvents() {
   });
 
   document.querySelector("#refresh-tickets").addEventListener("click", loadTickets);
+  els.ratingRow.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-score]");
+    if (!button) return;
+    await submitFeedback(Number(button.dataset.score));
+  });
+
   els.accessForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.accessCode = els.accessInput.value.trim();
@@ -131,7 +138,9 @@ function bindEvents() {
 
 async function sendMessage(content) {
   state.messages.push({ role: "customer", content });
+  state.lastResult = null;
   renderMessages();
+  renderFeedbackPanel();
   setSending(true);
 
   try {
@@ -150,14 +159,15 @@ async function sendMessage(content) {
     state.lastResult = data;
     state.messages.push({
       role: data.decision?.decision === "needs_review" ? "system" : "ai",
-      content: data.reply
+      content: data.reply,
+      products: data.recommendedProducts || [],
+      ticketId: data.ticket?.id
     });
     renderMessages();
-    renderDecision(data);
-    renderProducts(data.recommendedProducts || []);
+    renderFeedbackPanel();
   } catch (error) {
     if (error.message.includes("access code")) {
-      showAccessGate("展示碼不正確，請重新輸入。");
+      showAccessGate("試用碼不正確，請重新輸入。");
     }
     state.messages.push({
       role: "system",
@@ -171,63 +181,75 @@ async function sendMessage(content) {
 
 function renderMessages() {
   els.messages.innerHTML = state.messages
-    .map((message) => `<div class="message ${message.role}">${escapeHtml(message.content)}</div>`)
+    .map((message) => `
+      <div class="message ${message.role}">
+        <div class="message-content">${escapeHtml(message.content)}</div>
+        ${message.products?.length ? renderMessageProducts(message.products) : ""}
+      </div>
+    `)
     .join("");
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function renderDecision(data) {
-  const classification = data.classification || {};
-  const decision = data.decision || {};
-  const values = [
-    ["intent", classification.intent || "-"],
-    ["confidence", Number(classification.confidence || 0).toFixed(2)],
-    ["tone", classification.tone || "-"],
-    ["decision", decision.decision || "-"]
-  ];
-
-  els.decisionGrid.innerHTML = values
-    .map(([key, value]) => `<div><dt>${key}</dt><dd>${escapeHtml(value)}</dd></div>`)
-    .join("");
-
-  els.decisionBadge.textContent = decision.decision || "已判斷";
-  els.decisionBadge.className = `badge ${decision.decision === "needs_review" ? "warn" : ""}`;
-  els.reasonList.innerHTML = [
-    ...(decision.reasons || []),
-    data.matchedFaq ? `命中 FAQ：${data.matchedFaq.code} ${data.matchedFaq.title}` : "",
-    decision.handoffReason ? `轉人工原因：${decision.handoffReason}` : ""
-  ]
-    .filter(Boolean)
-    .map((reason) => `<div class="reason">${escapeHtml(reason)}</div>`)
-    .join("");
+function renderMessageProducts(products) {
+  return `
+    <div class="message-products">
+      ${products.map((product) => `
+        <article class="message-product">
+          <img src="${escapeAttr(product.image_url)}" alt="${escapeAttr(product.name_zh)}">
+          <div>
+            <h3>${escapeHtml(product.code)}｜${escapeHtml(product.name_zh)}</h3>
+            <div class="original">${escapeHtml(product.name_original || "")}</div>
+            <div class="product-meta">
+              <span>NT$ ${formatPrice(product.price)}</span>
+              <span>${escapeHtml(product.stock_status || "")}</span>
+            </div>
+            <p>${escapeHtml(product.description_zh || "")}</p>
+            <a href="${escapeAttr(product.product_url || `/products/${product.code}`)}">查看商品詳情</a>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
-function renderProducts(products) {
-  els.productCount.textContent = String(products.length);
-  if (!products.length) {
-    els.productList.innerHTML = '<div class="empty">這次沒有商品推薦。</div>';
+function renderFeedbackPanel() {
+  const ticketId = state.lastResult?.ticket?.id;
+  if (!ticketId || state.feedbackSubmittedFor.has(ticketId)) {
+    els.feedbackPanel.classList.add("hidden");
     return;
   }
 
-  els.productList.innerHTML = products.map(productCard).join("");
+  els.feedbackPanel.classList.remove("hidden");
+  els.feedbackStatus.textContent = "";
+  els.feedbackComment.value = "";
 }
 
-function productCard(product) {
-  return `
-    <article class="product-card">
-      <img src="${escapeAttr(product.image_url)}" alt="${escapeAttr(product.name_zh)}">
-      <div>
-        <h3>${escapeHtml(product.code)}｜${escapeHtml(product.name_zh)}</h3>
-        <div class="original">${escapeHtml(product.name_original || "")}</div>
-        <div class="product-meta">
-          <span>NT$ ${formatPrice(product.price)}</span>
-          <span>${escapeHtml(product.stock_status || "")}</span>
-        </div>
-        <p>${escapeHtml(product.description_zh || "")}</p>
-        <a href="${escapeAttr(product.product_url || `/products/${product.code}`)}">查看商品詳情</a>
-      </div>
-    </article>
-  `;
+async function submitFeedback(score) {
+  const ticketId = state.lastResult?.ticket?.id;
+  if (!ticketId) return;
+
+  els.feedbackStatus.textContent = "正在寫入評分...";
+  try {
+    const response = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ticketId,
+        score,
+        comment: els.feedbackComment.value.trim(),
+        sessionId: state.sessionId,
+        accessCode: state.accessCode
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || "評分寫入失敗");
+    state.feedbackSubmittedFor.add(ticketId);
+    els.feedbackStatus.textContent = "謝謝您的回饋，評分已寫入紀錄。";
+    setTimeout(() => renderFeedbackPanel(), 900);
+  } catch (error) {
+    els.feedbackStatus.textContent = `評分寫入失敗：${error.message}`;
+  }
 }
 
 async function checkHealth() {
@@ -240,7 +262,7 @@ async function checkHealth() {
     els.modePill.textContent = data.mode;
     if (state.accessCodeRequired && !state.accessCode) showAccessGate("");
   } catch {
-    els.healthPill.textContent = "API 未連線";
+    els.healthPill.textContent = "API 無回應";
     els.healthPill.className = "status-pill warn";
   }
 }
@@ -251,7 +273,7 @@ async function loadTickets() {
     return;
   }
 
-  els.ticketList.innerHTML = '<div class="empty">載入中...</div>';
+  els.ticketList.innerHTML = '<div class="empty">讀取中...</div>';
   try {
     const response = await fetch("/api/tickets", {
       headers: accessHeaders()
@@ -265,7 +287,7 @@ async function loadTickets() {
     renderTickets();
   } catch (error) {
     if (error.message.includes("access code")) {
-      showAccessGate("展示碼不正確，請重新輸入。");
+      showAccessGate("試用碼不正確，請重新輸入。");
     }
     els.ticketList.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }
@@ -274,7 +296,7 @@ async function loadTickets() {
 function renderTickets() {
   if (!state.tickets.length) {
     els.ticketList.innerHTML = '<div class="empty">目前沒有工單。</div>';
-    els.ticketDetail.innerHTML = '<div class="empty">選擇一張工單查看細節。</div>';
+    els.ticketDetail.innerHTML = '<div class="empty">請選擇一張工單查看細節。</div>';
     return;
   }
 
@@ -287,6 +309,7 @@ function renderTickets() {
           <span>${escapeHtml(ticket.intent || "-")}</span>
         </div>
         <div class="ticket-summary">${escapeHtml(ticket.summary || "")}</div>
+        ${ticket.feedback ? `<div class="ticket-score">CSAT ${escapeHtml(ticket.feedback.score)}/5</div>` : ""}
       </article>
     `)
     .join("");
@@ -303,7 +326,7 @@ function renderTickets() {
 
 function renderTicketDetail(ticket) {
   if (!ticket) {
-    els.ticketDetail.innerHTML = '<div class="empty">選擇一張工單查看細節。</div>';
+    els.ticketDetail.innerHTML = '<div class="empty">請選擇一張工單查看細節。</div>';
     return;
   }
 
@@ -321,7 +344,10 @@ function renderTicketDetail(ticket) {
       <div><dt>confidence</dt><dd>${formatConfidence(decision.confidence)}</dd></div>
       <div><dt>decision</dt><dd>${escapeHtml(decision.decision || "-")}</dd></div>
       <div><dt>handoff</dt><dd>${escapeHtml(decision.handoff_reason || "-")}</dd></div>
+      <div><dt>products</dt><dd>${formatProductCodes(decision.recommended_product_codes)}</dd></div>
+      <div><dt>CSAT</dt><dd>${ticket.feedback ? `${escapeHtml(ticket.feedback.score)}/5` : "-"}</dd></div>
     </dl>
+    ${ticket.feedback?.comment ? `<div class="feedback-note">客戶回饋：${escapeHtml(ticket.feedback.comment)}</div>` : ""}
     <div class="timeline">
       ${(ticket.messages || []).map((message) => `
         <div class="timeline-item">
@@ -332,7 +358,7 @@ function renderTicketDetail(ticket) {
     </div>
     <form class="reply-box" data-reply-form>
       <textarea name="content" placeholder="輸入 mock 客服回覆"></textarea>
-      <button type="submit">新增客服回覆</button>
+      <button type="submit">送出客服回覆</button>
     </form>
   `;
 
@@ -365,7 +391,7 @@ async function checkAccessCode() {
     headers: accessHeaders()
   });
   if (response.status === 401) {
-    showAccessGate("展示碼不正確，請重新輸入。");
+    showAccessGate("試用碼不正確，請重新輸入。");
     return;
   }
   if (window.location.pathname === "/admin") await loadTickets();
@@ -463,6 +489,12 @@ function formatPrice(value) {
 
 function formatConfidence(value) {
   return value == null ? "-" : Number(value).toFixed(2);
+}
+
+function formatProductCodes(value) {
+  if (Array.isArray(value)) return value.join(", ") || "-";
+  if (typeof value === "string") return value || "-";
+  return "-";
 }
 
 function escapeHtml(value) {

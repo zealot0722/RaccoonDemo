@@ -1,41 +1,41 @@
-export function buildClassificationPrompt({ message }) {
+export function buildClassificationPrompt({ message, conversationHistory = [] }) {
   return [
     {
       role: "system",
-      content: `你是 Raccoon AI 客服分類系統。請根據使用者訊息判斷 intent，且只回傳 JSON。
+      content: `你是 Raccoon demo 的客服語意分類器。
+請只輸出 JSON，不要輸出 markdown。
+主要語言為繁體中文。
+分類時要結合近期對話，若本次訊息是在回答上一輪追問，請沿用前文意圖。
 
 可用 intent：
 - faq
 - product_recommendation
-- order_status
 - complaint
 - human_handoff
 - out_of_scope
 - chitchat
 
-JSON schema：
+輸出 schema：
 {
-  "intent": "product_recommendation",
-  "confidence": 0.86,
-  "summary": "使用者想找適合新手的商品",
-  "tone": "neutral",
+  "intent": "faq",
+  "confidence": 0.0,
+  "summary": "一句話摘要",
+  "tone": "neutral | angry | anxious",
   "need_human": false,
-  "budget": 1000,
+  "budget": null,
   "category": "",
-  "use_case": "新手入門",
+  "use_case": "",
   "missing_fields": [],
-  "keywords": ["新手", "商品"]
-}
-
-規則：
-1. 使用者明確要求真人時，intent 必須是 human_handoff。
-2. 抱怨、威脅投訴、明顯不滿時，intent 優先為 complaint，tone 為 angry 或 frustrated。
-3. 商品推薦請盡量抽取 budget、category、use_case、keywords。
-4. 不可回傳 markdown，不可加解釋文字。`
+  "keywords": []
+}`
     },
     {
       role: "user",
-      content: message
+      content: `近期對話：
+${formatHistory(conversationHistory)}
+
+本次訊息：
+${message}`
     }
   ];
 }
@@ -44,45 +44,53 @@ export function buildReplyPrompt({
   message,
   classification,
   matchedFaq,
-  recommendedProducts
+  recommendedProducts,
+  decision,
+  conversationHistory = []
 }) {
-  const context = {
-    user_message: message,
-    classification,
-    matched_faq: matchedFaq
-      ? {
-          code: matchedFaq.code,
-          title: matchedFaq.title,
-          answer: matchedFaq.answer
-        }
-      : null,
-    recommended_products: recommendedProducts.map((product) => ({
-      code: product.code,
-      name_zh: product.name_zh,
-      price: product.price,
-      stock_status: product.stock_status,
-      tags: product.tags,
-      use_cases: product.use_cases
-    }))
-  };
-
   return [
     {
       role: "system",
-      content: `你是 Raccoon 的 AI 客服助理。請用繁體中文回覆，語氣清楚、簡短、友善。
-
-規則：
-1. FAQ 回覆必須以 matched_faq 為主要依據，不要編造政策。
-2. 商品推薦請說明每個商品為什麼符合使用者需求。
-3. 若資訊不足，請追問最少必要問題。
-4. 若需要真人客服，請明確告知已建立待處理工單。
-5. 不要輸出 markdown 表格。
-6. 不要使用 markdown 粗體、項目符號或程式碼格式。
-7. 每句話保持簡短，句尾使用中文標點。`
+      content: `你是 Raccoon demo 的客服助理。
+所有對客戶的稱呼都必須使用「您」。
+請使用繁體中文。
+不要輸出 markdown 粗體、項目符號、表格或程式碼格式。
+每句話保持簡短，句尾使用中文標點。
+不要說「請看右側」或「下方卡片」。
+若商品推薦條件不足，只追問最少必要條件，不要假裝已經推薦商品。
+若推薦商品，請在訊息內直接列出商品代號、中文名稱、原文名稱、價格、庫存、適合情境、推薦理由與詳情連結。`
     },
     {
       role: "user",
-      content: JSON.stringify(context, null, 2)
+      content: `近期對話：
+${formatHistory(conversationHistory)}
+
+本次訊息：
+${message}
+
+AI 分類：
+${JSON.stringify(classification, null, 2)}
+
+決策：
+${JSON.stringify(decision, null, 2)}
+
+命中 FAQ：
+${matchedFaq ? JSON.stringify(matchedFaq, null, 2) : "無"}
+
+推薦商品：
+${recommendedProducts?.length ? JSON.stringify(recommendedProducts, null, 2) : "無"}`
     }
   ];
+}
+
+function formatHistory(messages = []) {
+  if (!messages.length) return "無";
+
+  return messages
+    .slice(-8)
+    .map((item) => {
+      const role = item.role === "customer" ? "客戶" : item.role === "agent" ? "客服" : "AI";
+      return `${role}: ${String(item.content || "").slice(0, 240)}`;
+    })
+    .join("\n");
 }

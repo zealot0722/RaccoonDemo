@@ -1,143 +1,136 @@
 # Raccoon AI Support Demo 設計說明
 
-## 選用工具原因
+## 產品定位
 
-本 demo 使用 Codex/ChatGPT 進行 Vibe coding，原因是它可以同時讀取既有 HCT 交接資料、整理規格、產生前後端程式、撰寫 SQL 與文件，並用測試驗證決策邏輯。部署架構選擇 Vercel + Supabase + Groq，因為三者能提供穩定 URL、雲端資料庫與真實 LLM 語意判斷，不需要本機 n8n 長時間運作。
+此 demo 拆成兩個角色：
 
-公開 demo 會設定 `DEMO_ACCESS_CODE`。展示碼不是正式登入系統，但能避免任何人直接打 `/api/chat` 消耗 Groq 額度。
+- 客戶頁 `/`：只保留聊天、商品資訊、商品連結與結束評分。
+- 客服後台 `/admin`：顯示工單、對話紀錄、AI intent、confidence、decision、handoff reason、推薦商品代號與 CSAT。
+
+這樣避免客戶看到內部判斷面板，也避免客服頁出現對處理工單沒有幫助的右側商品展示。
+
+## 參考 HCT AI 客服的機制
+
+原 HCT workflow 的核心概念是：
+
+- 格式化輸入。
+- 分流一般訊息、對話結束與 CSAT。
+- 建立 ticket 與 messages。
+- Groq 分類。
+- KB 查詢。
+- 集中決策 `auto_reply / human_review / error`。
+- 轉人工時建立待處理工單。
+- 客服回覆寫回 messages。
+
+本 demo 對應成：
+
+- `/api/chat`：格式化輸入、讀取近期對話、Groq 分類、查 FAQ/products、決策、寫入 tickets/messages/ai_decisions。
+- `/api/tickets`：客服後台讀取工單與對話。
+- `/api/tickets/[id]/reply`：mock 客服回覆。
+- `/api/feedback`：客戶結束後評分，寫入 `csat_feedback` 或回退寫入 `messages`。
 
 ## Prompt 設計
 
-### Intent Classification Prompt
+### Intent Classification
 
-系統要求模型只回傳 JSON，欄位包含：
+分類 prompt 會收到近期對話與本次訊息。若本次訊息是回答上一輪追問，例如先輸入「推薦商品」，下一句補「1000 元以內，新手入門」，分類器要沿用商品推薦意圖。
+
+輸出 JSON：
 
 ```json
 {
   "intent": "product_recommendation",
   "confidence": 0.86,
-  "summary": "使用者想找適合新手的商品",
+  "summary": "客戶想找 1000 元內的新手商品",
   "tone": "neutral",
   "need_human": false,
   "budget": 1000,
   "category": "",
   "use_case": "新手入門",
   "missing_fields": [],
-  "keywords": ["新手", "商品"]
+  "keywords": ["新手", "推薦"]
 }
 ```
 
-可用 intent：
+### Reply Generation
 
-- `faq`
-- `product_recommendation`
-- `order_status`
-- `complaint`
-- `human_handoff`
-- `out_of_scope`
-- `chitchat`
+回覆規則：
 
-### Reply Generation Prompt
+- 所有對客戶的稱呼使用「您」。
+- 不輸出 markdown 粗體、表格、項目符號或程式碼格式。
+- 每句話簡短，句尾用中文標點。
+- 不說「請看右側」或「下方卡片」。
+- 條件不足時只追問必要條件。
+- 推薦商品時，訊息中直接列出商品代號、中文名稱、原文名稱、價格、庫存、適合情境、推薦理由與詳情連結。
 
-回覆生成 prompt 會提供：
+## 決策 criteria
 
-- 使用者原始訊息
-- 分類結果
-- 命中的 FAQ
-- 候選商品清單
-
-規則是使用繁體中文、FAQ 不編造政策、商品推薦需說明推薦理由、資訊不足時先追問、需要真人時明確告知已建立工單。
-
-## 判斷邏輯 Criteria
-
-- 使用者明確要求真人：`decision = needs_review`
+- 使用者要求真人：`decision = needs_review`
 - `intent = complaint`：`decision = needs_review`
 - `tone = angry`：`decision = needs_review`
 - `confidence < 0.5`：`decision = needs_review`
 - FAQ 查無資料且 `confidence < 0.7`：`decision = needs_review`
-- 商品推薦缺少預算或用途：自動追問，不轉人工
-- 商品推薦條件足夠：查 `products` 並回傳 1-3 張商品卡
-- 其他未觸發風險：`decision = auto_reply`
+- 商品推薦缺少預算或用途：`decision = auto_reply`，但只追問條件，不回傳商品
+- 商品推薦條件足夠：查 `products`，回傳 1-3 個商品並顯示在聊天訊息內
 
-## 範例 Input / Output
+## 範例
 
-### FAQ
+### 條件不足
 
-Input：
-
-```text
-請問商品可以退貨嗎？
-```
-
-Output：
+Input:
 
 ```text
-商品到貨後七天內可申請退換貨，請保留完整包裝與購買資訊。
+推薦商品
 ```
 
-AI 判斷：
+Output:
 
-```json
-{
-  "intent": "faq",
-  "confidence": 0.78,
-  "decision": "auto_reply",
-  "matched_faq": "F001"
-}
+```text
+請您再補充預算和用途或使用情境。
+例如預算、用途、送禮或自用情境。
 ```
 
 ### 商品推薦
 
-Input：
+Input:
 
 ```text
 我想找 1000 元內的新手商品
 ```
 
-Output：
+Output excerpt:
 
 ```text
-依照你的需求，我推薦 P001 入門保養組。下方卡片有價格、圖片、庫存與推薦理由。
-```
+依照您的需求，建議您先參考以下商品。
 
-商品卡：
-
-```text
 P001｜入門保養組
-Raccoon Starter Care Kit
-NT$ 890
-適合：新手入門、日常使用、送禮
+原文名稱：Raccoon Starter Care Kit
+價格：NT$ 890
+庫存：現貨
+適合情境：新手入門、日常使用、送禮
+詳情連結：/products/P001
+圖片：/assets/p001.png
 ```
 
 ### 轉人工
 
-Input：
+Input:
 
 ```text
 我要找真人客服
 ```
 
-Output：
+Output:
 
 ```text
-我已經幫你建立待處理工單，真人客服會接手確認。
+已為您建立待處理工單，真人客服會接手確認。
+您也可以補充更多細節，讓客服更快處理。
 ```
 
-AI 判斷：
+## 待改進
 
-```json
-{
-  "intent": "human_handoff",
-  "decision": "needs_review",
-  "handoff_reason": "使用者明確要求真人客服，建立待處理工單。"
-}
-```
-
-## 待改進內容
-
-- 串接真實商品資料與庫存 API。
-- 加入多輪對話記憶，讓使用者補充預算或用途時沿用前文。
-- 加入向量搜尋，提高 FAQ 命中率。
-- 串接 LINE、Email 或客服系統，讓 mock 後台變成真實通知流程。
-- 增加管理員登入、權限與稽核紀錄。
-- 加入 IP/session rate limit，進一步降低公開 API 被濫用的風險。
+- 加入正式登入系統與角色權限。
+- 加入 rate limit。
+- 將 CSAT 與回覆品質調整流程接到分析後台。
+- 串接真實 LINE、Email、庫存與訂單 API。
+- 用 production migration 工具管理 Supabase schema 版本。

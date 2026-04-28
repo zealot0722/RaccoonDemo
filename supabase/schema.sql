@@ -66,9 +66,20 @@ create table if not exists ai_decisions (
   created_at timestamptz not null default now()
 );
 
+create table if not exists csat_feedback (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid not null references tickets(id) on delete cascade,
+  customer_id text not null default 'web-demo',
+  score integer not null check (score between 1 and 5),
+  comment text,
+  source text not null default 'web_chat',
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_tickets_created_at on tickets(created_at desc);
 create index if not exists idx_messages_ticket_id on messages(ticket_id, created_at);
 create index if not exists idx_ai_decisions_ticket_id on ai_decisions(ticket_id, created_at desc);
+create index if not exists idx_csat_feedback_ticket_id on csat_feedback(ticket_id, created_at desc);
 create index if not exists idx_products_code on products(code);
 create index if not exists idx_faq_articles_code on faq_articles(code);
 
@@ -77,6 +88,7 @@ alter table products enable row level security;
 alter table tickets enable row level security;
 alter table messages enable row level security;
 alter table ai_decisions enable row level security;
+alter table csat_feedback enable row level security;
 
 create or replace function set_updated_at()
 returns trigger

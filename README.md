@@ -1,6 +1,6 @@
 # Raccoon AI Support Demo
 
-可部署到 Vercel 的 AI 客服與商品推薦 demo。前端提供聊天、商品推薦卡、AI 判斷面板與客服後台；後端使用 Vercel Serverless Functions 呼叫 Groq 與 Supabase。
+可部署到 Vercel 的 AI 客服與商品推薦 demo。前台是客戶聊天頁，後台是客服 mock console；後端使用 Vercel Serverless Functions 呼叫 Groq 與 Supabase。
 
 ## 架構
 
@@ -8,44 +8,42 @@
 Browser
   -> Vercel static frontend
   -> /api/chat
-  -> Groq intent classification
+  -> Groq intent classification with recent conversation context
   -> Supabase faq_articles / products
-  -> Groq reply generation
   -> decision center
+  -> customer-facing reply with product info inline
   -> Supabase tickets / messages / ai_decisions
-  -> frontend decision panel + product cards
+  -> /api/feedback writes CSAT feedback
 ```
 
-沒有依賴本機 n8n、Cloudflare Tunnel 或 Ollama。`DEMO_FALLBACK=true` 只供本地或展示環境檢查 UI 使用；正式提交應設定 Groq 與 Supabase。
+不需要本機 n8n、Cloudflare Tunnel 或 Ollama。API keys 只放在 Vercel Environment Variables，前端不會直接拿到 Groq 或 Supabase service role key。
 
-## 檔案結構
+## 專案結構
 
 ```text
 api/                    Vercel Serverless Functions
 src/server/             Groq, Supabase, decision, FAQ, recommendation logic
-supabase/schema.sql     建表與 RLS
-supabase/seed.sql       FAQ、商品與示例工單
-docs/design.md          題目要求的設計說明
-docs/test-cases.md      Demo 測試腳本
-index.html              Demo UI
-app.js                  前端互動
-styles.css              前端樣式
+supabase/schema.sql     Database schema, including csat_feedback
+supabase/seed.sql       Demo FAQ and product data
+docs/design.md          Prompt, criteria, architecture notes
+docs/test-cases.md      Demo test scripts
+index.html              Customer page and admin page shell
+app.js                  Frontend interaction
+styles.css              UI styles
 ```
 
-## Supabase 初始化
+## Supabase 設定
 
 1. 建立新的 Supabase project。
-2. SQL Editor 執行 `supabase/schema.sql`。
-3. SQL Editor 執行 `supabase/seed.sql`。
-4. 到 Project Settings 記下：
+2. 在 SQL Editor 執行 `supabase/schema.sql`。
+3. 在 SQL Editor 執行 `supabase/seed.sql`。
+4. 到 Project Settings 取得：
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
 
-所有資料存取都經由 Vercel API，service role key 不會放到瀏覽器。
+`SUPABASE_SERVICE_ROLE_KEY` 只能放在 Vercel 後端環境變數，不可放到前端。
 
 ## Vercel 環境變數
-
-在 Vercel Project Settings 設定：
 
 ```text
 GROQ_API_KEY=
@@ -58,44 +56,25 @@ DEMO_ACCESS_CODE=raccoon2026
 DEMO_FALLBACK=false
 ```
 
-`DEMO_ACCESS_CODE` 用來保護公開 demo endpoint，避免陌生人直接消耗 Groq 額度。若未設定，API 會維持免展示碼，方便本機開發。
+`DEMO_ACCESS_CODE` 用來保護 demo endpoint，避免公開 URL 被大量呼叫消耗 Groq quota。
 
-## 部署
+## 路由
 
-1. 將此資料夾推到 GitHub。
-2. 在 Vercel 匯入此 repo。
-3. Framework Preset 選 `Other`。
-4. 設定環境變數。
-5. Deploy。
-6. 打開 `/api/health` 應看到 `groqConfigured: true` 與 `supabaseConfigured: true`。
-7. 若設定了 `DEMO_ACCESS_CODE`，首頁會要求輸入展示碼後才允許呼叫聊天與後台 API。
+- `/`：客戶聊天頁。商品推薦會直接出現在聊天訊息內。
+- `/products/P001`：商品詳情頁。
+- `/admin`：客服 mock console，顯示工單、對話、AI 判斷、推薦商品代號、CSAT 評分。
 
-## 本機檢查
-
-此專案沒有 npm dependency。可用 Node 20+ 執行：
-
-```bash
-node scripts/dev-server.js
-node --test --test-isolation=none
-node --check api/chat.js
-```
-
-在此 Windows 環境可用：
+## 本機驗證
 
 ```powershell
 & 'D:\DevTools\nodejs\node.exe' scripts/dev-server.js
 & 'D:\DevTools\nodejs\node.exe' --test --test-isolation=none
+& 'D:\DevTools\nodejs\node.exe' --check api/chat.js
+& 'D:\DevTools\nodejs\node.exe' --check api/feedback.js
 ```
 
-## Demo 路徑
+## 目前範圍
 
-- `/`：聊天、商品推薦、AI 判斷面板。
-- `/products/P001`：商品詳情頁。
-- `/admin`：客服後台 mock console。
-
-## 重要限制
-
-- 不串 LINE、Email、付款或真實庫存 API。
-- 客服後台的回覆只寫入 demo DB，不外送。
-- 商品與工單是示例資料，使用 `P001`、`T001` 等代號。
-- 公開 demo endpoint 以展示碼降低濫用風險；正式產品仍應加上更完整的 rate limit、登入與稽核。
+- 不串接真實 LINE、Email、付款或庫存 API。
+- 客服回覆只寫入 demo DB。
+- 評分會寫入 `csat_feedback`；若 production DB 尚未補上新表，API 會退回寫入 `messages` 的 system 訊息，避免前台功能中斷。
