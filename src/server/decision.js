@@ -56,6 +56,8 @@ export function decideNextAction({
 
   if (intent === "product_recommendation" && recommendedProducts.length > 0) {
     reasons.push("已找到符合條件的商品，將商品資訊放入聊天訊息。");
+  } else if (intent === "product_recommendation") {
+    reasons.push("未找到符合條件的商品，不產生未查證商品。");
   } else if (intent === "faq" && matchedFaq) {
     reasons.push("已命中 FAQ 知識庫。");
   } else {

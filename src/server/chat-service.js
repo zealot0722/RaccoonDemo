@@ -134,6 +134,10 @@ async function buildReply({
     return buildProductRecommendationReply(recommendedProducts, classification);
   }
 
+  if (classification.intent === "product_recommendation") {
+    return "目前沒有找到完全符合您條件的商品。\n請您調整預算、用途或品類後再試一次。";
+  }
+
   if (classification.intent === "out_of_scope") {
     return "目前我可以協助您查詢退換貨、付款、配送、保固，或協助您挑選商品。";
   }

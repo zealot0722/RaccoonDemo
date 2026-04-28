@@ -70,6 +70,17 @@ test("recommends Chinese products under budget", () => {
   assert.ok(result.every((product) => product.price <= 1000));
 });
 
+test("expands coarse LLM keywords before matching products", () => {
+  const result = recommendProducts(products, {
+    budget: 1000,
+    use_case: "",
+    keywords: ["新手商品", "1000 元"]
+  });
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].code, "P001");
+});
+
 test("builds product recommendations with details and links inside the reply", () => {
   const reply = buildProductRecommendationReply([products[0]], {
     budget: 1000,

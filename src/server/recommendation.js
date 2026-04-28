@@ -36,7 +36,7 @@ export function recommendProducts(products, classification) {
   const category = normalizeText(classification?.category);
   const useCase = normalizeText(classification?.use_case);
   const keywords = Array.isArray(classification?.keywords)
-    ? classification.keywords.map(normalizeText)
+    ? [...new Set(classification.keywords.flatMap(expandKeyword))]
     : [];
   const hasSpecificNeed = Boolean(category || useCase || keywords.length);
   const budgetOnlyScore = budget ? 4 : 0;
@@ -138,6 +138,27 @@ function normalizeText(value) {
 function isMeaningfulUseCaseToken(value) {
   const token = normalizeText(value);
   return Boolean(token && !["商品", "推薦", "預算", "價格", "便宜"].includes(token));
+}
+
+function expandKeyword(value) {
+  const token = normalizeText(value)
+    .replace(/商品/g, "")
+    .replace(/推薦/g, "")
+    .replace(/預算/g, "")
+    .replace(/價格/g, "")
+    .trim();
+  const expanded = [];
+
+  if (token && !/^\d+\s*(元|塊)?$/.test(token)) expanded.push(token);
+  if (/新手|入門/.test(value)) expanded.push("新手", "新手入門");
+  if (/送禮|禮物/.test(value)) expanded.push("送禮");
+  if (/清潔/.test(value)) expanded.push("清潔");
+  if (/保養/.test(value)) expanded.push("保養");
+  if (/耳機|3c/i.test(value)) expanded.push("耳機", "3c");
+  if (/辦公|通勤|會議/.test(value)) expanded.push("辦公", "通勤", "會議");
+  if (/杯|馬克杯/.test(value)) expanded.push("杯", "馬克杯");
+
+  return expanded.map(normalizeText).filter(Boolean);
 }
 
 function formatPrice(value) {
