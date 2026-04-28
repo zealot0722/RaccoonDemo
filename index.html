@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Raccoon AI Support Demo</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <section class="access-gate hidden" id="access-gate" aria-label="展示碼">
+      <form class="access-box" id="access-form">
+        <div class="brand">Raccoon AI Support Demo</div>
+        <h1>輸入展示碼</h1>
+        <p>此 demo 使用 Groq 與 Supabase，需展示碼才能呼叫 API。</p>
+        <input id="access-code-input" type="password" autocomplete="off" placeholder="DEMO_ACCESS_CODE">
+        <button type="submit">進入 demo</button>
+        <div class="access-error" id="access-error"></div>
+      </form>
+    </section>
+
+    <header class="topbar">
+      <div>
+        <div class="brand">Raccoon AI Support Demo</div>
+        <div class="subtitle">FAQ 回答、商品推薦、AI 判斷與客服接手展示</div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-route="/">聊天</button>
+        <button class="nav-btn" data-route="/admin">客服後台</button>
+        <a class="link-btn" href="/docs/design.md">設計文件</a>
+      </nav>
+    </header>
+
+    <main id="app">
+      <section class="workspace" id="chat-view">
+        <section class="chat-shell" aria-label="聊天介面">
+          <div class="chat-head">
+            <div>
+              <h1>AI 客服</h1>
+              <p>輸入 FAQ、商品推薦或轉人工情境。</p>
+            </div>
+            <div class="status-stack">
+              <span class="status-pill" id="health-pill">檢查中</span>
+              <span class="status-pill ghost" id="mode-pill">demo</span>
+            </div>
+          </div>
+
+          <div class="quick-actions">
+            <button data-prompt="請問商品可以退貨嗎？">退貨 FAQ</button>
+            <button data-prompt="我想找 1000 元內的新手商品">新手推薦</button>
+            <button data-prompt="推薦商品">條件不足</button>
+            <button data-prompt="我要找真人客服">轉人工</button>
+            <button data-prompt="你們服務太差了，我要客訴">客訴</button>
+          </div>
+
+          <div class="messages" id="messages" aria-live="polite"></div>
+
+          <form class="composer" id="chat-form">
+            <input id="message-input" name="message" autocomplete="off" placeholder="例如：我想找 1000 元內的新手商品">
+            <button type="submit" id="send-btn">送出</button>
+          </form>
+        </section>
+
+        <aside class="inspector">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>AI 判斷</h2>
+              <span id="decision-badge" class="badge neutral">等待輸入</span>
+            </div>
+            <dl class="decision-grid" id="decision-grid">
+              <div><dt>intent</dt><dd>-</dd></div>
+              <div><dt>confidence</dt><dd>-</dd></div>
+              <div><dt>tone</dt><dd>-</dd></div>
+              <div><dt>decision</dt><dd>-</dd></div>
+            </dl>
+            <div class="reason-list" id="reason-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>推薦商品</h2>
+              <span class="badge ghost" id="product-count">0</span>
+            </div>
+            <div class="product-list" id="product-list">
+              <div class="empty">商品推薦會顯示在這裡。</div>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="admin-view hidden" id="admin-view">
+        <div class="admin-header">
+          <div>
+            <h1>客服後台</h1>
+            <p>展示轉人工工單、AI 判斷與 mock 客服回覆。</p>
+          </div>
+          <button id="refresh-tickets">刷新工單</button>
+        </div>
+        <div class="admin-grid">
+          <div class="ticket-list" id="ticket-list"></div>
+          <div class="ticket-detail" id="ticket-detail">
+            <div class="empty">選擇一張工單查看細節。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-view hidden" id="product-view"></section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
