@@ -273,6 +273,7 @@ h2 {
   border: 1px solid var(--border);
   line-height: 1.55;
   font-size: 14px;
+  white-space: pre-line;
 }
 
 .message.customer {

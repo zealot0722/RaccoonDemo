@@ -1,6 +1,7 @@
 import { decideNextAction } from "./decision.js";
 import { findBestFaq } from "./faq.js";
 import { classifyMessage, generateReply } from "./llm.js";
+import { formatAssistantReply } from "./reply-format.js";
 import {
   formatMissingProductFields,
   getMissingProductFields,
@@ -41,7 +42,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     replyGenerationOk: true
   });
 
-  const reply = await buildReply({
+  const reply = formatAssistantReply(await buildReply({
     message: cleanMessage,
     classification,
     matchedFaq,
@@ -49,7 +50,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     decision,
     missingProductFields,
     config: options.config
-  });
+  }));
 
   const ticket = await repo.createTicket({
     ticket_no: generateTicketNo(),
