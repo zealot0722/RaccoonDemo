@@ -112,6 +112,21 @@ Expected:
 - 若 production DB 尚未新增 `csat_feedback`，回退寫入 `messages` 的 system 訊息
 - 後台可看到該工單的 CSAT
 
+## 模糊結束語
+
+Input:
+
+```text
+謝謝，先這樣就好
+```
+
+Expected:
+
+- 不是本地明確結束語
+- 交給 Groq 語意分類
+- 若 Groq 回傳 `intent = conversation_end`，才顯示 CSAT 評分
+- 若訊息仍包含新問題，例如 `謝謝，那退貨怎麼辦？`，應繼續回答 FAQ，不顯示評分
+
 ## 客服後台
 
 Steps:

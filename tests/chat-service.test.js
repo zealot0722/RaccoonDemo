@@ -74,6 +74,57 @@ test("detects common no-more replies as conversation end", () => {
   assert.equal(isConversationEndMessage("我還有問題"), false);
 });
 
+test("uses Groq classification for fuzzy conversation-end messages", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "conversation_end",
+              confidence: 0.87,
+              summary: "客戶表示先結束本次對話",
+              tone: "neutral",
+              need_human: false,
+              missing_fields: [],
+              keywords: ["先這樣"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "謝謝，先這樣就好",
+      sessionId: "test-session-fuzzy-end"
+    }, {
+      repo: createContextRepo(),
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(isConversationEndMessage("謝謝，先這樣就好"), false);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.model, "test-classifier");
+    assert.equal(result.conversationEnded, true);
+    assert.equal(result.classification.intent, "conversation_end");
+    assert.match(result.reply, /請為本次服務評分/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createContextRepo() {
   const tickets = [];
   const messages = [];

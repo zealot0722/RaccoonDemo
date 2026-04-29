@@ -160,6 +160,7 @@ function normalizeClassification(raw, message) {
     "order_status",
     "complaint",
     "human_handoff",
+    "conversation_end",
     "out_of_scope",
     "chitchat"
   ].includes(raw?.intent)

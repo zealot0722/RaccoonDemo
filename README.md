@@ -64,6 +64,8 @@ DEMO_FALLBACK=false
 - `/products/P001`：商品詳情頁。
 - `/admin`：客服 mock console，顯示工單、對話、AI 判斷、推薦商品代號、CSAT 評分。
 
+評分流程採混合判斷：明確結束語由本地規則處理，模糊結束語交給 Groq 分類為 `conversation_end` 後才顯示評分。
+
 ## 本機驗證
 
 ```powershell

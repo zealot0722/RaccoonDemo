@@ -12,8 +12,12 @@ export function buildClassificationPrompt({ message, conversationHistory = [] })
 - product_recommendation
 - complaint
 - human_handoff
+- conversation_end
 - out_of_scope
 - chitchat
+
+conversation_end 用於使用者表示本次對話已結束，例如「謝謝，先這樣」、「目前沒有其他問題」。
+若句子同時包含新問題，例如「謝謝，那退貨怎麼辦？」，不要分類為 conversation_end。
 
 輸出 schema：
 {

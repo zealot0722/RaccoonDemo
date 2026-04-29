@@ -27,8 +27,8 @@ export async function handleChat({ message, sessionId }, options = {}) {
     repo.listRecentMessages ? repo.listRecentMessages(customerId, 10) : []
   ]);
 
-  const conversationEnded = isConversationEndMessage(cleanMessage);
-  const classification = conversationEnded
+  const explicitConversationEnd = isConversationEndMessage(cleanMessage);
+  const classification = explicitConversationEnd
     ? {
         intent: "conversation_end",
         confidence: 0.98,
@@ -45,6 +45,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
         config: options.config,
         conversationHistory
       });
+  const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
   const missingProductFields = getMissingProductFields(classification);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
