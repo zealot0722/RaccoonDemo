@@ -51,17 +51,6 @@ export function applyMessageQualityGuardrail(classification = {}, message = "") 
     return classification;
   }
 
-  if (isLikelyUnclearInput(message)) {
-    return {
-      ...classification,
-      intent: "unclear",
-      confidence: Math.max(Number(classification.confidence || 0), 0.88),
-      summary: "客戶輸入無法辨識的內容",
-      missing_fields: [],
-      keywords: [...new Set([...(classification.keywords || []), "unclear"])]
-    };
-  }
-
   if (isChitchatInput(message)) {
     return {
       ...classification,
@@ -70,6 +59,17 @@ export function applyMessageQualityGuardrail(classification = {}, message = "") 
       summary: "客戶輸入閒聊或招呼語",
       missing_fields: [],
       keywords: [...new Set([...(classification.keywords || []), "chitchat"])]
+    };
+  }
+
+  if (isLikelyUnclearInput(message)) {
+    return {
+      ...classification,
+      intent: "unclear",
+      confidence: Math.max(Number(classification.confidence || 0), 0.88),
+      summary: "客戶輸入無法辨識的內容",
+      missing_fields: [],
+      keywords: [...new Set([...(classification.keywords || []), "unclear"])]
     };
   }
 

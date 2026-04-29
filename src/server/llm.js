@@ -78,17 +78,6 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|[一二兩三四五六七八九十百千萬]+(?:元|塊|以內|以下)?|其他|別的|還有嗎|還有其他|換一個|不同|更便宜|便宜一點|預算|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯|\bP\d{3,}\b/i.test(text);
   const budgetValue = extractBudgetValue(text);
 
-  if (isLikelyUnclearInput(text)) {
-    return normalizeClassification({
-      intent: "unclear",
-      confidence: 0.9,
-      tone: "neutral",
-      need_human: false,
-      summary: "客戶輸入無法辨識的內容",
-      keywords: ["unclear"]
-    }, message);
-  }
-
   if (isChitchatInput(text)) {
     return normalizeClassification({
       intent: "chitchat",
@@ -97,6 +86,17 @@ function classifyWithHeuristics(message, conversationHistory = []) {
       need_human: false,
       summary: "客戶輸入閒聊或招呼語",
       keywords: ["chitchat"]
+    }, message);
+  }
+
+  if (isLikelyUnclearInput(text)) {
+    return normalizeClassification({
+      intent: "unclear",
+      confidence: 0.9,
+      tone: "neutral",
+      need_human: false,
+      summary: "客戶輸入無法辨識的內容",
+      keywords: ["unclear"]
     }, message);
   }
 

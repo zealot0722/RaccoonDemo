@@ -518,7 +518,9 @@ function detectMultiIntent(message = "") {
   const intents = [];
 
   if (isReturnRequestMessage(text, [])) intents.push("return_request");
-  if (/查貨|貨態|物流|配送進度|包裹|出貨|到貨|訂單|請查|幫我查|順便查/.test(text) || identifiers.orderNo || identifiers.trackingNo) {
+  if (/查貨|貨態|物流|配送進度|出貨|到貨|訂單|請查|幫我查|順便查|包裹.*(到哪|在哪|位置|進度|還沒到)|(到哪|在哪|位置|進度|還沒到).*包裹/.test(text) ||
+    identifiers.orderNo ||
+    identifiers.trackingNo) {
     intents.push("order_status");
   }
   if (/推薦|商品推薦|推薦商品|想找.*商品|想買|耳機|預算/.test(text)) {
