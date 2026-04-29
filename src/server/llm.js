@@ -186,7 +186,7 @@ function normalizeClassification(raw, message) {
     ? raw.intent
     : "out_of_scope";
 
-  return {
+  const result = {
     intent,
     confidence: clamp(Number(raw?.confidence ?? 0.6), 0, 1),
     summary: String(raw?.summary || message).slice(0, 160),
@@ -200,6 +200,42 @@ function normalizeClassification(raw, message) {
     missing_fields: Array.isArray(raw?.missing_fields) ? raw.missing_fields : [],
     keywords: Array.isArray(raw?.keywords) ? raw.keywords : []
   };
+
+  return applyWorkflowGuardrails(result, message);
+}
+
+function applyWorkflowGuardrails(classification, message) {
+  if (["human_handoff", "complaint"].includes(classification.intent)) {
+    return classification;
+  }
+
+  const identifiers = extractOrderIdentifiersFromText(message);
+  if (!looksLikeOrderStatus(message, identifiers)) {
+    return classification;
+  }
+
+  const orderNo = classification.order_no || identifiers.orderNo;
+  const trackingNo = classification.tracking_no || identifiers.trackingNo;
+
+  return {
+    ...classification,
+    intent: "order_status",
+    confidence: Math.max(classification.confidence, 0.82),
+    summary: classification.summary || "客戶詢問訂單或物流貨態",
+    order_no: orderNo,
+    tracking_no: trackingNo,
+    missing_fields: orderNo || trackingNo ? [] : ["order_identifier"],
+    keywords: [...new Set([...(classification.keywords || []), "貨態"])]
+  };
+}
+
+function looksLikeOrderStatus(message, identifiers = {}) {
+  const text = String(message || "");
+  if (identifiers.orderNo || identifiers.trackingNo) {
+    return /查|貨態|物流|配送|出貨|到貨|包裹|訂單/.test(text);
+  }
+
+  return /查貨|貨態|物流單號|訂單編號|配送進度|包裹|出貨|到貨了嗎|到貨沒/.test(text);
 }
 
 function hasRecentProductContext(conversationHistory) {

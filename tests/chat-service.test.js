@@ -170,6 +170,54 @@ test("uses Groq classification for fuzzy conversation-end messages", async () =>
   }
 });
 
+test("keeps order-status workflow when Groq misclassifies a clear order lookup", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "faq",
+              confidence: 0.74,
+              summary: "模型誤判為配送 FAQ",
+              tone: "neutral",
+              need_human: false,
+              missing_fields: [],
+              keywords: ["配送"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "我想查 RAC1001 的貨態",
+      sessionId: "test-session-groq-order-guardrail"
+    }, {
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(result.classification.intent, "order_status");
+    assert.equal(result.orderStatus.found, true);
+    assert.match(result.reply, /配送中/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createContextRepo() {
   const tickets = [];
   const messages = [];
