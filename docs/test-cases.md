@@ -105,6 +105,21 @@ Expected:
 - 回覆包含 `RAC1001`、`RC123456789TW` 與 `配送中`
 - 後台可看到 AI decision 與查詢摘要
 
+## 查貨態長尾口語
+
+Input:
+
+```text
+RAC1004的東西在哪
+```
+
+Expected:
+
+- `intent = order_status`
+- 命中 demo 貨態資料
+- 回覆包含 `RAC1004`、`RC555666777TW` 與目前狀態
+- 不轉人工
+
 ## 查貨態條件不足
 
 Input:

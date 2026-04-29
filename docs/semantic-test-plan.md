@@ -83,6 +83,7 @@ foreach ($file in $files) {
 | 商品改預算 | `那我最後確定要 2000 以下的` | 先前已推薦 `P002` | `follow_up = budget_refinement`，保留 `P002` |
 | 查貨態起始 | `我想查貨態` | 無 | `intent = order_status`，追問訂單編號或物流單號 |
 | 查貨態口語 | `怎麼還沒到` | 無 | `intent = order_status`，追問訂單編號或物流單號 |
+| 查貨態長尾口語 | `RAC1004的東西在哪` | 無 | `intent = order_status`，命中 demo 貨態，不轉人工 |
 | 查貨態補編號 | `RAC1001` | AI 已追問訂單編號或物流單號 | 查詢並回覆配送狀態 |
 | 查無貨態 | `請幫我查 RAC9999 的貨態` | 無 | `decision = needs_review` |
 | 轉人工 | `我要找真人客服` | 無 | `intent = human_handoff`，建立待處理工單 |

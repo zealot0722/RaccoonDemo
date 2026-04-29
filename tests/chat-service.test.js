@@ -375,6 +375,20 @@ test("chat workflow returns mock order status when order is found", async () => 
   assert.match(result.reply, /RC123456789TW/);
 });
 
+test("chat workflow treats colloquial order item location as order status", async () => {
+  const result = await handleChat({
+    message: "RAC1004的東西在哪",
+    sessionId: "test-session-order-colloquial-location"
+  });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.equal(result.orderStatus.found, true);
+  assert.equal(result.orderStatus.order_no, "RAC1004");
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.doesNotMatch(result.reply, /客服人員將很快為您服務/);
+  assert.match(result.reply, /目前狀態/);
+});
+
 test("chat workflow creates needs_review ticket when order status is not found", async () => {
   const result = await handleChat({
     message: "請幫我查 RAC9999 的貨態",

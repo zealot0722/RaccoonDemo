@@ -62,6 +62,20 @@ insert into order_statuses (
   '[{"code":"P003","name":"高效清潔組","qty":1},{"code":"P004","name":"質感禮品杯","qty":1}]'::jsonb,
   '包裹已由管理室代收，若未取得請聯繫客服協助確認。',
   true
+),
+(
+  'RAC1004',
+  'RC555666777TW',
+  'web-demo',
+  '789',
+  'out_for_delivery',
+  '配送中',
+  '新北配送站',
+  '2026-05-01T17:00:00+08:00',
+  '2026-04-29T13:20:00+08:00',
+  '[{"code":"P002","name":"無線耳機","qty":1}]'::jsonb,
+  '包裹已交由司機配送，請留意電話通知。',
+  true
 )
 on conflict (order_no) do update set
   tracking_no = excluded.tracking_no,

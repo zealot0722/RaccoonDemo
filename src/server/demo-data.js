@@ -129,5 +129,25 @@ export const demoOrderStatuses = [
     ],
     note: "包裹已由管理室代收，若未取得請聯繫客服協助確認。",
     is_mock: true
+  },
+  {
+    order_no: "RAC1004",
+    tracking_no: "RC555666777TW",
+    customer_id: "web-demo",
+    customer_phone_last3: "789",
+    status: "out_for_delivery",
+    status_label: "配送中",
+    current_location: "新北配送站",
+    estimated_delivery: "2026-05-01T17:00:00+08:00",
+    last_event_at: "2026-04-29T13:20:00+08:00",
+    items: [
+      {
+        code: "P002",
+        name: "無線耳機",
+        qty: 1
+      }
+    ],
+    note: "包裹已交由司機配送，請留意電話通知。",
+    is_mock: true
   }
 ];
