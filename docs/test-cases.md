@@ -234,6 +234,8 @@ Expected:
 - Supabase 寫入 `csat_feedback`
 - 若 production DB 尚未新增 `csat_feedback`，回退寫入 `messages` 的 system 訊息
 - 後台可看到該工單的 CSAT
+- 客戶完成評分後，聊天輸入、上傳照片與送出按鈕會被鎖定
+- 系統訊息顯示「請關閉此視窗，如有其他需求請重新整理或另開視窗。」
 
 ## 模糊結束語
 

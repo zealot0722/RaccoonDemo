@@ -125,14 +125,12 @@ export function buildProductRecommendationReply(products, classification = {}) {
 
   const intro = "依照您的需求，我先幫您整理幾個比較適合的選項。";
   const details = products.map((product) => {
-    const reason = buildRecommendationReason(product, classification);
     return [
       `${product.code}｜${product.name_zh}`,
       product.name_original ? `原文名稱：${product.name_original}` : "",
       `價格：NT$ ${formatPrice(product.price)}`,
       `庫存：${product.stock_status || "請洽客服確認"}`,
       product.use_cases?.length ? `適合情境：${product.use_cases.slice(0, 3).join("、")}` : "",
-      `推薦理由：${reason}`,
       `詳情連結：${product.product_url || `/products/${product.code}`}`
     ].filter(Boolean).join("\n");
   });
@@ -189,30 +187,6 @@ function fallbackProductScores(products, { budget, referencePrice, wantsCheaper 
       return true;
     })
     .sort((a, b) => b.score - a.score || Number(a.product.price) - Number(b.product.price));
-}
-
-function buildRecommendationReason(product, classification) {
-  const budget = normalizeBudget(classification?.budget);
-  const referencePrice = normalizeBudget(classification?.reference_price);
-  const reasons = [];
-
-  if (budget && Number(product.price) <= budget) {
-    reasons.push(`價格在 NT$ ${formatPrice(budget)} 以內`);
-  }
-  if (classification?.follow_up === "alternative" && classification?.exclude_product_codes?.length) {
-    reasons.push("提供與前一次不同的選項");
-  }
-  if (classification?.follow_up === "cheaper" && referencePrice && Number(product.price) < referencePrice) {
-    reasons.push("價格比前一個選項更低");
-  }
-  if (classification?.use_case) {
-    reasons.push(`符合「${classification.use_case}」的使用情境`);
-  }
-  if (product.tags?.length) {
-    reasons.push(`具備 ${product.tags.slice(0, 2).join("、")} 特性`);
-  }
-
-  return reasons.length ? reasons.join("，") : "和您目前描述的需求相符";
 }
 
 function normalizeText(value) {

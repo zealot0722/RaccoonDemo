@@ -1,3 +1,5 @@
+import { canSendChatMessage, lockChatAfterFeedback } from "./src/client/chat-lock.js";
+
 const PRODUCTS = [
   {
     code: "P001",
@@ -68,7 +70,8 @@ const state = {
   sessionId: getSessionId(),
   accessCodeRequired: false,
   accessCode: sessionStorage.getItem("raccoon-demo-access-code") || "",
-  feedbackSubmittedFor: new Set()
+  feedbackSubmittedFor: new Set(),
+  chatLocked: false
 };
 
 const els = {
@@ -120,14 +123,20 @@ function bindEvents() {
     await sendMessage(value, attachments);
   });
 
-  els.attachBtn.addEventListener("click", () => els.photoInput.click());
+  els.attachBtn.addEventListener("click", () => {
+    if (!canSendChatMessage(state)) return;
+    els.photoInput.click();
+  });
   els.photoInput.addEventListener("change", async () => {
     await addPhotoAttachments(Array.from(els.photoInput.files || []));
     els.photoInput.value = "";
   });
 
   document.querySelectorAll("[data-prompt]").forEach((button) => {
-    button.addEventListener("click", () => sendMessage(button.dataset.prompt));
+    button.addEventListener("click", () => {
+      if (!canSendChatMessage(state)) return;
+      sendMessage(button.dataset.prompt);
+    });
   });
 
   document.querySelectorAll("[data-route]").forEach((button) => {
@@ -153,6 +162,8 @@ function bindEvents() {
 }
 
 async function sendMessage(content, attachments = []) {
+  if (!canSendChatMessage(state)) return;
+
   const outgoingContent = content || "已上傳商品照片";
   state.messages.push({ role: "customer", content: outgoingContent, attachments });
   state.lastResult = null;
@@ -360,9 +371,12 @@ async function submitFeedback(score) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || "評分寫入失敗");
-    state.feedbackSubmittedFor.add(ticketId);
-    els.feedbackStatus.textContent = "謝謝您的回饋，評分已寫入紀錄。";
-    setTimeout(() => renderFeedbackPanel(), 900);
+    lockChatAfterFeedback(state, ticketId);
+    localStorage.removeItem("raccoon-session-id");
+    renderMessages();
+    renderAttachmentPreview();
+    renderFeedbackPanel();
+    setSending(false);
   } catch (error) {
     els.feedbackStatus.textContent = `評分寫入失敗：${error.message}`;
   }
@@ -605,8 +619,13 @@ function navigate(path) {
 }
 
 function setSending(isSending) {
-  els.sendBtn.disabled = isSending;
-  els.sendBtn.textContent = isSending ? "處理中" : "送出";
+  const locked = !canSendChatMessage(state);
+  els.sendBtn.disabled = isSending || locked;
+  els.input.disabled = locked;
+  els.attachBtn.disabled = locked;
+  els.photoInput.disabled = locked;
+  els.form.classList.toggle("locked", locked);
+  els.sendBtn.textContent = locked ? "已結束" : isSending ? "處理中" : "送出";
 }
 
 function getSessionId() {

@@ -430,6 +430,10 @@ a:hover {
   background: #fff;
 }
 
+.composer.locked {
+  background: #f6f7f7;
+}
+
 .composer input,
 .reply-box textarea,
 .feedback-panel textarea,
@@ -441,6 +445,11 @@ a:hover {
   color: var(--text);
   background: #fff;
   outline: none;
+}
+
+.composer.locked input {
+  color: var(--muted);
+  background: #f1f4f3;
 }
 
 .composer input:focus,

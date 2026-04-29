@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev-server.js",
     "test": "node --test --test-isolation=none",
-    "check": "node --check api/chat.js && node --check api/feedback.js && node --check api/health.js && node --check api/tickets/index.js && node --check api/tickets/[id]/reply.js"
+    "check": "node --check app.js && node --check src/client/chat-lock.js && node --check api/chat.js && node --check api/feedback.js && node --check api/health.js && node --check api/tickets/index.js && node --check api/tickets/[id]/reply.js"
   },
   "engines": {
     "node": ">=20"
