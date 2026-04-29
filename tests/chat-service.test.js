@@ -328,6 +328,19 @@ test("chat workflow routes return requests with required details to human review
   assert.doesNotMatch(result.ticket.summary, /查詢資料/);
 });
 
+test("chat workflow treats complete return detail bundles as return requests", async () => {
+  const result = await handleChat({
+    message: "王小明 0912345678 RC123456789TW",
+    sessionId: "return-complete-bundle-session"
+  });
+
+  assert.equal(result.classification.intent, "return_request");
+  assert.deepEqual(result.missingReturnFields, []);
+  assert.equal(result.decision.decision, "needs_review");
+  assert.match(result.ticket.summary, /送貨貨號：RC123456789TW/);
+  assert.match(result.ticket.summary, /姓名：王小明/);
+});
+
 test("chat workflow records optional return photo attachments", async () => {
   const repo = createReturnContextRepo();
   const result = await handleChat({

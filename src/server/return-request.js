@@ -11,6 +11,7 @@ export function isReturnRequestMessage(message, conversationHistory = []) {
   if (/(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件).*(商品|東西|貨|包裹)|(商品|東西|貨|包裹).*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)|收到.*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)/.test(text)) {
     return true;
   }
+  if (hasCompleteReturnDetails(text)) return true;
 
   return hasRecentReturnContext(conversationHistory) && looksLikeReturnDetails(text);
 }
@@ -104,6 +105,11 @@ function hasRecentReturnContext(conversationHistory = []) {
 
 function looksLikeReturnDetails(message = "") {
   return /(送貨貨號|貨號|物流單號|訂單編號|名稱|姓名|名字|電話|手機|照片|圖片|相片|09\d{8}|\b(?:RC|TRK|TRACK|SHIP|RAC|ORD|ORDER|O)[-_]?[A-Z0-9]{4,16}\b)/i.test(String(message || ""));
+}
+
+function hasCompleteReturnDetails(message = "") {
+  const info = extractReturnInfoFromText(message);
+  return Boolean(info.delivery_no && info.customer_name && info.phone);
 }
 
 function isReturnPolicyQuestion(message = "") {
