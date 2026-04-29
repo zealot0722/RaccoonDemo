@@ -82,16 +82,21 @@ export function enrichProductClassification(classification, message, conversatio
   const followUp = inferProductFollowUp(message, context);
   const messageBudget = extractBudget(message);
   const messageUseCase = inferUseCaseFromText(message);
+  const freshProductRequest = isFreshProductRequest(message);
   const hasProductContinuation = context.hasProductContext &&
     (followUp || messageBudget || messageUseCase || classification?.intent === "product_recommendation");
 
-  if (!hasProductContinuation) return classification;
+  if (!freshProductRequest && !hasProductContinuation) return classification;
+
+  const contextFollowUp = context.hasProductContext
+    ? followUp || (messageBudget ? "budget_refinement" : "context_continuation")
+    : classification?.follow_up || "";
 
   const next = {
     ...classification,
     intent: "product_recommendation",
-    confidence: Math.max(Number(classification?.confidence || 0), followUp ? 0.8 : 0.76),
-    follow_up: followUp || (messageBudget ? "budget_refinement" : "context_continuation"),
+    confidence: Math.max(Number(classification?.confidence || 0), followUp || freshProductRequest ? 0.82 : 0.76),
+    follow_up: contextFollowUp,
     budget: messageBudget || classification?.budget || context.lastBudget || null,
     category: messageUseCase ? classification?.category || "" : "",
     use_case: messageUseCase || "",
@@ -286,7 +291,16 @@ function buildContextualKeywords(keywords = [], message = "") {
 }
 
 function isProtectedIntent(intent) {
-  return ["human_handoff", "complaint", "return_request", "order_status", "conversation_end"].includes(intent);
+  return ["human_handoff", "complaint", "return_request", "order_status"].includes(intent);
+}
+
+function isFreshProductRequest(message = "") {
+  const text = String(message || "");
+  if (/退貨|退款|換貨|付款|配送|運送|物流|貨態|保固|發票|真人|人工|客服|客訴|投訴/.test(text)) {
+    return false;
+  }
+
+  return /推薦商品|商品推薦|想找.*商品|找.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|想買.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|預算.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|\d+\s*(元|塊|以內|以下)?.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|新手商品|送禮.*商品|家用.*商品/i.test(text);
 }
 
 function isMeaningfulUseCaseToken(value) {

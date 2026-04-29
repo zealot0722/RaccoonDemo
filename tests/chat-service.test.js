@@ -380,6 +380,104 @@ test("asks for order identifier when Groq misclassifies a bare order-status requ
   }
 });
 
+test("keeps product workflow when Groq misclassifies a clear product request", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "faq",
+              confidence: 0.72,
+              summary: "模型誤判為一般 FAQ",
+              tone: "neutral",
+              need_human: false,
+              missing_fields: [],
+              keywords: ["商品"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "我想找 1000 元內的新手商品",
+      sessionId: "test-session-groq-product-guardrail"
+    }, {
+      repo: createContextRepo({ recentMessages: [] }),
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(result.classification.intent, "product_recommendation");
+    assert.equal(result.missingProductFields.length, 0);
+    assert.equal(result.recommendedProducts[0].code, "P001");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps product follow-up when Groq misclassifies alternatives as conversation end", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "conversation_end",
+              confidence: 0.81,
+              summary: "模型誤判為結束對話",
+              tone: "neutral",
+              need_human: false,
+              missing_fields: [],
+              keywords: ["其他"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "有其他的嗎？",
+      sessionId: "test-session-groq-product-followup-guardrail"
+    }, {
+      repo: createContextRepo({
+        recentMessages: [
+          { role: "customer", content: "我想找 1000 元內的新手商品" },
+          { role: "ai", content: "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001" }
+        ]
+      }),
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(result.conversationEnded, false);
+    assert.equal(result.classification.intent, "product_recommendation");
+    assert.equal(result.classification.follow_up, "alternative");
+    assert.notEqual(result.recommendedProducts[0].code, "P001");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createContextRepo({ recentMessages = null, productOverrides = null } = {}) {
   const tickets = [];
   const messages = [];

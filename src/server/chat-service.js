@@ -61,11 +61,10 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
         config: options.config,
         conversationHistory
       });
-  const classification = enrichProductClassification(
-    applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory),
-    messageForClassification,
-    conversationHistory
-  );
+  const routedClassification = applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory);
+  const classification = explicitConversationEnd
+    ? routedClassification
+    : enrichProductClassification(routedClassification, messageForClassification, conversationHistory);
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
 
   const missingProductFields = getMissingProductFields(classification);
