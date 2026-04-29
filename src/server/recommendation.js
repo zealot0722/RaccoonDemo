@@ -5,6 +5,7 @@ const FIELD_LABELS = {
 
 export function getMissingProductFields(classification) {
   if (classification?.intent !== "product_recommendation") return [];
+  if (classification?.follow_up) return [];
 
   const explicitMissing = Array.isArray(classification.missing_fields)
     ? classification.missing_fields.filter((field) => FIELD_LABELS[field])
@@ -35,6 +36,11 @@ export function recommendProducts(products, classification) {
   const budget = normalizeBudget(classification?.budget);
   const category = normalizeText(classification?.category);
   const useCase = normalizeText(classification?.use_case);
+  const excludedCodes = new Set(
+    (classification?.exclude_product_codes || []).map((code) => normalizeText(code))
+  );
+  const referencePrice = normalizeBudget(classification?.reference_price);
+  const wantsCheaper = classification?.follow_up === "cheaper";
   const keywords = Array.isArray(classification?.keywords)
     ? [...new Set(classification.keywords.flatMap(expandKeyword))]
     : [];
@@ -49,12 +55,62 @@ export function recommendProducts(products, classification) {
     .filter(({ score }) => score > 0 && (!hasSpecificNeed || score > budgetOnlyScore))
     .sort((a, b) => b.score - a.score || Number(a.product.price) - Number(b.product.price));
 
-  const underBudget = scored.filter(({ product }) => {
-    return !budget || Number(product.price) <= budget;
+  const underBudget = scored.filter(({ product }) => !budget || Number(product.price) <= budget);
+  const cheaperThanReference = scored.filter(({ product }) => {
+    return !referencePrice || Number(product.price) < referencePrice;
   });
 
-  const source = underBudget.length ? underBudget : scored;
+  let source = wantsCheaper && cheaperThanReference.length
+    ? cheaperThanReference
+    : underBudget.length ? underBudget : scored;
+
+  const filtered = source.filter(({ product }) => !excludedCodes.has(normalizeText(product.code)));
+  if (filtered.length) source = filtered;
+  else if (classification?.follow_up && excludedCodes.size) {
+    const fallback = fallbackProductScores(products, { budget, referencePrice, wantsCheaper })
+      .filter(({ product }) => !excludedCodes.has(normalizeText(product.code)));
+    if (fallback.length) source = fallback;
+  }
+
   return source.slice(0, 3).map(({ product }) => product);
+}
+
+export function enrichProductClassification(classification, message, conversationHistory = []) {
+  if (isProtectedIntent(classification?.intent)) return classification;
+
+  const context = getProductConversationContext(conversationHistory);
+  const followUp = inferProductFollowUp(message, context);
+  const messageBudget = extractBudget(message);
+  const messageUseCase = inferUseCaseFromText(message);
+  const hasProductContinuation = context.hasProductContext &&
+    (followUp || messageBudget || messageUseCase || classification?.intent === "product_recommendation");
+
+  if (!hasProductContinuation) return classification;
+
+  const next = {
+    ...classification,
+    intent: "product_recommendation",
+    confidence: Math.max(Number(classification?.confidence || 0), followUp ? 0.8 : 0.76),
+    follow_up: followUp || (messageBudget ? "budget_refinement" : "context_continuation"),
+    budget: messageBudget || classification?.budget || context.lastBudget || null,
+    category: messageUseCase ? classification?.category || "" : "",
+    use_case: messageUseCase || "",
+    keywords: buildContextualKeywords(classification?.keywords, message),
+    missing_fields: []
+  };
+
+  if (context.recommendedProductCodes.length) {
+    next.exclude_product_codes = context.recommendedProductCodes;
+  }
+
+  if (context.lastRecommendedPrice) {
+    next.reference_price = context.lastRecommendedPrice;
+    if (next.follow_up === "cheaper" && !next.budget) {
+      next.budget = context.lastRecommendedPrice - 1;
+    }
+  }
+
+  return next;
 }
 
 export function buildProductRecommendationReply(products, classification = {}) {
@@ -113,12 +169,36 @@ function scoreProduct(product, { budget, category, useCase, keywords }) {
   return score;
 }
 
+function fallbackProductScores(products, { budget, referencePrice, wantsCheaper }) {
+  return products
+    .map((product) => {
+      let score = 1;
+      if (budget && Number(product.price) <= budget) score += 4;
+      if (wantsCheaper && referencePrice && Number(product.price) < referencePrice) score += 3;
+      if (product.tags?.some((tag) => /預算友善|日常|新手/.test(tag))) score += 1;
+      return { product, score };
+    })
+    .filter(({ product }) => {
+      if (budget && Number(product.price) > budget) return false;
+      if (wantsCheaper && referencePrice && Number(product.price) >= referencePrice) return false;
+      return true;
+    })
+    .sort((a, b) => b.score - a.score || Number(a.product.price) - Number(b.product.price));
+}
+
 function buildRecommendationReason(product, classification) {
   const budget = normalizeBudget(classification?.budget);
+  const referencePrice = normalizeBudget(classification?.reference_price);
   const reasons = [];
 
   if (budget && Number(product.price) <= budget) {
     reasons.push(`價格在 NT$ ${formatPrice(budget)} 以內`);
+  }
+  if (classification?.follow_up === "alternative" && classification?.exclude_product_codes?.length) {
+    reasons.push("提供與前一次不同的選項");
+  }
+  if (classification?.follow_up === "cheaper" && referencePrice && Number(product.price) < referencePrice) {
+    reasons.push("價格比前一個選項更低");
   }
   if (classification?.use_case) {
     reasons.push(`符合「${classification.use_case}」的使用情境`);
@@ -132,6 +212,81 @@ function buildRecommendationReason(product, classification) {
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getProductConversationContext(conversationHistory = []) {
+  const recent = conversationHistory.slice(-8);
+  const aiText = recent
+    .filter((item) => item.role !== "customer")
+    .map((item) => String(item.content || ""))
+    .join("\n");
+  const customerText = recent
+    .filter((item) => item.role === "customer")
+    .map((item) => String(item.content || ""))
+    .join("\n");
+  const combined = `${aiText}\n${customerText}`;
+
+  return {
+    hasProductContext: /推薦|商品|產品|預算|用途|使用情境|詳情連結|P\d{3}/i.test(combined),
+    recommendedProductCodes: extractProductCodes(aiText),
+    lastBudget: extractLastBudget(customerText),
+    lastRecommendedPrice: extractLastPrice(aiText)
+  };
+}
+
+function inferProductFollowUp(message, context) {
+  const text = String(message || "");
+  if (!context.hasProductContext) return "";
+  if (/更便宜|便宜一點|低一點|價格低|預算低/.test(text)) return "cheaper";
+  if (/其他|別的|還有嗎|還有其他|換一個|換款|不同|另一個|另.*選項/.test(text)) return "alternative";
+  if (extractBudget(text)) return "budget_refinement";
+  if (inferUseCaseFromText(text)) return "need_refinement";
+  return "";
+}
+
+function extractProductCodes(text) {
+  return [...new Set(String(text || "").match(/\bP\d{3,}\b/gi) || [])].map((code) => code.toUpperCase());
+}
+
+function extractBudget(text) {
+  const normalized = String(text || "").replace(/[,，]/g, "");
+  const match = normalized.match(/(\d+)\s*(元|塊|以內|以下|左右)?/);
+  return match ? Number(match[1]) : null;
+}
+
+function extractLastBudget(text) {
+  const matches = [...String(text || "").replace(/[,，]/g, "").matchAll(/(\d+)\s*(元|塊|以內|以下|左右)?/g)];
+  return matches.length ? Number(matches.at(-1)[1]) : null;
+}
+
+function extractLastPrice(text) {
+  const matches = [...String(text || "").replace(/[,，]/g, "").matchAll(/(?:NT\$|價格：?NT\$?)\s*(\d+)/gi)];
+  if (matches.length) return Number(matches.at(-1)[1]);
+
+  const fallback = [...String(text || "").replace(/[,，]/g, "").matchAll(/價格[:：]?\s*(\d+)/g)];
+  return fallback.length ? Number(fallback.at(-1)[1]) : null;
+}
+
+function inferUseCaseFromText(text) {
+  if (/新手|入門/.test(text)) return "新手入門";
+  if (/送禮|禮物/.test(text)) return "送禮";
+  if (/自用/.test(text)) return "自用";
+  if (/家用|居家/.test(text)) return "居家使用";
+  if (/清潔/.test(text)) return "清潔";
+  if (/保養/.test(text)) return "保養";
+  if (/通勤|辦公|會議/.test(text)) return "工作通勤";
+  if (/耳機|3c/i.test(text)) return "3C 使用";
+  return "";
+}
+
+function buildContextualKeywords(keywords = [], message = "") {
+  const direct = ["新手", "入門", "送禮", "禮物", "自用", "家用", "居家", "保養", "清潔", "耳機", "杯", "通勤", "辦公", "會議", "3C"]
+    .filter((keyword) => new RegExp(keyword, "i").test(message));
+  return [...new Set([...(Array.isArray(keywords) ? keywords : []), ...direct])];
+}
+
+function isProtectedIntent(intent) {
+  return ["human_handoff", "complaint", "return_request", "order_status", "conversation_end"].includes(intent);
 }
 
 function isMeaningfulUseCaseToken(value) {

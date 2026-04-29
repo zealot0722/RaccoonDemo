@@ -74,7 +74,7 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const faq = /退貨|退款|付款|配送|運送|保固|發票|換貨/.test(text);
   const product = /推薦|商品|預算|新手|送禮|禮物|耳機|保養|清潔|杯|入門|3c|家用/.test(normalized);
   const priorProductContext = hasRecentProductContext(conversationHistory);
-  const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯/.test(text);
+  const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|其他|別的|還有嗎|還有其他|換一個|不同|更便宜|便宜一點|預算|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯/.test(text);
   const budgetMatch = text.replace(/[,，]/g, "").match(/(\d+)\s*(元|塊|以內|以下)?/);
 
   if (wantsHuman) {
@@ -133,8 +133,9 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   if (product || (priorProductContext && looksLikeProductFollowup)) {
     const useCase = inferUseCase(text, conversationHistory);
     const missingFields = [];
-    if (!budgetMatch) missingFields.push("budget");
-    if (!useCase) missingFields.push("use_case");
+    const productFollowUp = inferProductFollowUp(text, priorProductContext);
+    if (!budgetMatch && !productFollowUp) missingFields.push("budget");
+    if (!useCase && !productFollowUp && !budgetMatch) missingFields.push("use_case");
 
     return normalizeClassification({
       intent: "product_recommendation",
@@ -143,6 +144,7 @@ function classifyWithHeuristics(message, conversationHistory = []) {
       budget: budgetMatch ? Number(budgetMatch[1]) : null,
       category: inferCategory(text),
       use_case: useCase,
+      follow_up: productFollowUp,
       missing_fields: missingFields,
       keywords: extractKeywords(text, ["新手", "送禮", "禮物", "自用", "家用", "入門", "保養", "清潔", "耳機", "杯", "3C"])
     }, message);
@@ -214,6 +216,8 @@ function normalizeClassification(raw, message) {
     use_case: raw?.use_case || "",
     order_no: raw?.order_no || raw?.orderNo || "",
     tracking_no: raw?.tracking_no || raw?.trackingNo || "",
+    follow_up: raw?.follow_up || raw?.followUp || "",
+    exclude_product_codes: Array.isArray(raw?.exclude_product_codes) ? raw.exclude_product_codes : [],
     missing_fields: Array.isArray(raw?.missing_fields) ? raw.missing_fields : [],
     keywords: Array.isArray(raw?.keywords) ? raw.keywords : []
   };
@@ -291,6 +295,14 @@ function inferCategory(text) {
   if (/3c|耳機/i.test(text)) return "3C";
   if (/保養/.test(text)) return "保養";
   if (/清潔|杯|家用|居家/.test(text)) return "家用生活";
+  return "";
+}
+
+function inferProductFollowUp(text, priorProductContext) {
+  if (!priorProductContext) return "";
+  if (/更便宜|便宜一點|低一點|價格低|預算低/.test(text)) return "cheaper";
+  if (/其他|別的|還有嗎|還有其他|換一個|換款|不同|另一個|另.*選項/.test(text)) return "alternative";
+  if (/\d+\s*(元|塊|以內|以下)?/.test(text)) return "budget_refinement";
   return "";
 }
 

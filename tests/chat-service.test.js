@@ -44,6 +44,74 @@ test("chat workflow uses recent context for follow-up product answers", async ()
   assert.equal(result.recommendedProducts[0].code, "P001");
 });
 
+test("chat workflow uses previous AI product reply when customer asks for another option", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找 1000 元內的新手商品" },
+      {
+        role: "ai",
+        content: "依照您的需求，我先幫您整理幾個比較適合的選項。\n\nP001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001"
+      }
+    ]
+  });
+  const result = await handleChat({
+    message: "有其他的嗎？",
+    sessionId: "context-session-alt"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "alternative");
+  assert.deepEqual(result.classification.exclude_product_codes, ["P001"]);
+  assert.equal(result.missingProductFields.length, 0);
+  assert.ok(result.recommendedProducts.length >= 1);
+  assert.notEqual(result.recommendedProducts[0].code, "P001");
+  assert.doesNotMatch(result.reply, /P001｜入門保養組/);
+  assert.match(result.ticket.summary, /追問其他品項/);
+  assert.match(result.ticket.summary, /排除前次商品：P001/);
+});
+
+test("chat workflow uses later customer budget to refine the previous product recommendation", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "推薦商品" },
+      { role: "ai", content: "請問您要用來做什麼呢？如果方便，也可以一起告訴我大約預算或想找的品類。" }
+    ]
+  });
+  const result = await handleChat({
+    message: "預算 600 元以內",
+    sessionId: "context-session-budget"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "budget_refinement");
+  assert.equal(result.classification.budget, 600);
+  assert.equal(result.missingProductFields.length, 0);
+  assert.equal(result.recommendedProducts[0].code, "P003");
+  assert.ok(result.recommendedProducts.every((product) => product.price <= 600));
+});
+
+test("chat workflow treats cheaper follow-up as a product refinement", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找 1000 元內的新手商品" },
+      {
+        role: "ai",
+        content: "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001"
+      }
+    ]
+  });
+  const result = await handleChat({
+    message: "有沒有更便宜一點的？",
+    sessionId: "context-session-cheaper"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "cheaper");
+  assert.equal(result.missingProductFields.length, 0);
+  assert.notEqual(result.recommendedProducts[0].code, "P001");
+  assert.ok(result.recommendedProducts[0].price < 890);
+});
+
 test("chat workflow creates needs_review ticket for human handoff", async () => {
   const result = await handleChat({
     message: "我要找真人客服",
@@ -53,8 +121,7 @@ test("chat workflow creates needs_review ticket for human handoff", async () => 
   assert.equal(result.classification.intent, "human_handoff");
   assert.equal(result.decision.decision, "needs_review");
   assert.equal(result.ticket.status, "needs_review");
-  assert.match(result.reply, /十分抱歉/);
-  assert.match(result.reply, /問題摘要/);
+  assert.equal(result.reply, "請稍後，客服人員將很快為您服務。");
   assert.match(result.ticket.summary, /客服摘要/);
   assert.match(result.ticket.summary, /轉人工/);
   assert.match(result.decision.handoffReason, /真人客服/);
@@ -85,7 +152,7 @@ test("chat workflow routes return requests with required details to human review
   assert.deepEqual(result.missingReturnFields, []);
   assert.equal(result.decision.decision, "needs_review");
   assert.equal(result.ticket.status, "needs_review");
-  assert.match(result.reply, /退貨資料整理到客服後台/);
+  assert.equal(result.reply, "請稍後，客服人員將很快為您服務。");
   assert.match(result.ticket.summary, /退貨資料/);
   assert.match(result.ticket.summary, /客服摘要/);
   assert.doesNotMatch(result.ticket.summary, /查詢資料/);
@@ -147,8 +214,7 @@ test("chat workflow creates needs_review ticket when order status is not found",
   assert.equal(result.classification.intent, "order_status");
   assert.equal(result.orderStatus.found, false);
   assert.equal(result.decision.decision, "needs_review");
-  assert.match(result.reply, /十分抱歉/);
-  assert.match(result.reply, /客服後台/);
+  assert.equal(result.reply, "請稍後，客服人員將很快為您服務。");
   assert.match(result.ticket.summary, /查詢編號：RAC9999/);
 });
 
@@ -314,11 +380,11 @@ test("asks for order identifier when Groq misclassifies a bare order-status requ
   }
 });
 
-function createContextRepo() {
+function createContextRepo({ recentMessages = null, productOverrides = null } = {}) {
   const tickets = [];
   const messages = [];
   const decisions = [];
-  const products = [
+  const products = productOverrides || [
     {
       code: "P001",
       name_zh: "入門保養組",
@@ -331,6 +397,45 @@ function createContextRepo() {
       tags: ["新手", "預算友善"],
       use_cases: ["新手入門"],
       stock_status: "現貨"
+    },
+    {
+      code: "P002",
+      name_zh: "行動辦公耳機",
+      name_original: "Raccoon Focus Buds",
+      category: "3C",
+      price: 1680,
+      image_url: "/assets/p002.png",
+      product_url: "/products/P002",
+      description_zh: "適合通勤與遠距會議的輕量耳機。",
+      tags: ["通勤", "遠距會議", "工作", "3C"],
+      use_cases: ["工作", "通勤", "線上會議"],
+      stock_status: "現貨"
+    },
+    {
+      code: "P003",
+      name_zh: "高效清潔組",
+      name_original: "Raccoon Home Clean Set",
+      category: "生活用品",
+      price: 520,
+      image_url: "/assets/p003.png",
+      product_url: "/products/P003",
+      description_zh: "小空間與租屋族適用的清潔組合。",
+      tags: ["租屋", "清潔", "預算友善", "居家"],
+      use_cases: ["居家清潔", "租屋生活", "日常使用"],
+      stock_status: "有庫存"
+    },
+    {
+      code: "P004",
+      name_zh: "質感禮品杯",
+      name_original: "Raccoon Daily Mug",
+      category: "生活用品",
+      price: 680,
+      image_url: "/assets/p004.png",
+      product_url: "/products/P004",
+      description_zh: "適合辦公室與日常使用的質感馬克杯。",
+      tags: ["送禮", "辦公室", "日常", "預算友善"],
+      use_cases: ["送禮", "辦公室", "日常使用"],
+      stock_status: "少量庫存"
     }
   ];
 
@@ -343,7 +448,7 @@ function createContextRepo() {
       return products;
     },
     async listRecentMessages() {
-      return [
+      return recentMessages || [
         { role: "customer", content: "推薦商品" },
         { role: "ai", content: "請您再補充預算和用途或使用情境。" }
       ];
@@ -373,7 +478,7 @@ function createReturnContextRepo() {
     async listRecentMessages() {
       return [
         { role: "customer", content: "我要退貨" },
-        { role: "ai", content: "請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片。" }
+        { role: "ai", content: "請提供您的送貨貨號、姓名、電話號碼。" }
       ];
     }
   };

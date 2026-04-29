@@ -27,6 +27,8 @@ return_request 用於使用者要退貨、退款、換貨或退換貨。
 退貨申請若缺少送貨貨號、姓名或電話號碼，missing_fields 可填入 ["delivery_no","customer_name","phone"]。
 商品照片可以作為附件參考，但不是必填資料。
 若使用者是在上一輪退貨追問後補資料，請沿用 return_request，不要分類成商品推薦或一般 FAQ。
+若近期 AI 已推薦商品，使用者回「有其他的嗎」、「換一個」、「更便宜一點」或補充預算/用途時，請沿用 product_recommendation。
+商品推薦追問可用 follow_up 表示 alternative、budget_refinement、cheaper、need_refinement 或空字串。
 
 輸出 schema：
 {
@@ -38,6 +40,8 @@ return_request 用於使用者要退貨、退款、換貨或退換貨。
   "budget": null,
   "category": "",
   "use_case": "",
+  "follow_up": "",
+  "exclude_product_codes": [],
   "order_no": "",
   "tracking_no": "",
   "missing_fields": [],

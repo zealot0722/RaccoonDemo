@@ -44,6 +44,18 @@ const products = [
     description_zh: "小空間清潔組合。",
     tags: ["居家", "清潔"],
     use_cases: ["居家清潔"]
+  },
+  {
+    code: "P004",
+    name_zh: "質感禮品杯",
+    name_original: "Raccoon Daily Mug",
+    category: "生活用品",
+    price: 680,
+    product_url: "/products/P004",
+    image_url: "/assets/p004.png",
+    description_zh: "適合辦公室與日常使用的質感馬克杯。",
+    tags: ["送禮", "辦公室", "日常", "預算友善"],
+    use_cases: ["送禮", "辦公室", "日常使用"]
   }
 ];
 
@@ -79,6 +91,46 @@ test("expands coarse LLM keywords before matching products", () => {
 
   assert.equal(result.length, 1);
   assert.equal(result[0].code, "P001");
+});
+
+test("recommends different products when customer asks for alternatives", () => {
+  const result = recommendProducts(products, {
+    budget: 1000,
+    use_case: "",
+    keywords: [],
+    follow_up: "alternative",
+    exclude_product_codes: ["P001"]
+  });
+
+  assert.ok(result.length >= 1);
+  assert.notEqual(result[0].code, "P001");
+  assert.deepEqual(result.map((product) => product.code), ["P003", "P004"]);
+});
+
+test("broadens alternative recommendations when the only strict match was already shown", () => {
+  const result = recommendProducts(products, {
+    budget: 1000,
+    use_case: "新手入門",
+    keywords: ["新手"],
+    follow_up: "alternative",
+    exclude_product_codes: ["P001"]
+  });
+
+  assert.ok(result.length >= 1);
+  assert.notEqual(result[0].code, "P001");
+});
+
+test("uses later budget refinements to prefer better-priced products", () => {
+  const result = recommendProducts(products, {
+    budget: 600,
+    use_case: "",
+    keywords: [],
+    follow_up: "budget_refinement",
+    exclude_product_codes: ["P001"]
+  });
+
+  assert.equal(result[0].code, "P003");
+  assert.ok(result.every((product) => product.price <= 600));
 });
 
 test("builds product recommendations with details and links inside the reply", () => {

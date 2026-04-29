@@ -23,7 +23,7 @@ export function buildReturnInformationRequestReply() {
 }
 
 export function buildReturnHandoffReply() {
-  return "十分抱歉造成您的不便。\n我已經把您提供的退貨資料整理到客服後台，客服人員會協助確認後續退貨處理。";
+  return "請稍後，客服人員將很快為您服務。";
 }
 
 export function summarizeReturnInfo(message = "", attachments = []) {

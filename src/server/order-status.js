@@ -27,7 +27,7 @@ export function extractOrderIdentifiersFromText(message = "") {
 
 export function buildOrderStatusReply(orderStatus) {
   if (!orderStatus?.found) {
-    return "十分抱歉，我目前沒有查到這筆貨態。\n我已經把您提供的資料整理到客服後台，客服人員會協助確認。";
+    return "請稍後，客服人員將很快為您服務。";
   }
 
   const parts = [

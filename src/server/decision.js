@@ -60,7 +60,7 @@ export function decideNextAction({
   }
 
   if (intent === "return_request" && missingReturnFields.length > 0) {
-    reasons.push("退貨申請資料不足，先請客戶提供送貨貨號、名稱、電話號碼與商品照片。");
+    reasons.push("退貨申請資料不足，先請客戶提供送貨貨號、姓名與電話號碼。");
     return {
       decision: "auto_reply",
       reasons,

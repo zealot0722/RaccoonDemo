@@ -10,12 +10,12 @@ import {
 import { formatAssistantReply } from "./reply-format.js";
 import {
   buildProductRecommendationReply,
+  enrichProductClassification,
   formatMissingProductFields,
   getMissingProductFields,
   recommendProducts
 } from "./recommendation.js";
 import {
-  buildReturnHandoffReply,
   buildReturnInformationRequestReply,
   formatMissingReturnFields,
   getMissingReturnFields,
@@ -61,7 +61,11 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
         config: options.config,
         conversationHistory
       });
-  const classification = applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory);
+  const classification = enrichProductClassification(
+    applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory),
+    messageForClassification,
+    conversationHistory
+  );
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
 
   const missingProductFields = getMissingProductFields(classification);
@@ -120,6 +124,7 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
   });
   const reply = formatAssistantReply(appendContinuationPrompt(rawReply, {
     conversationEnded,
+    decision,
     classification,
     missingProductFields,
     missingOrderFields
@@ -211,7 +216,7 @@ async function buildReply({
     return `可以，我幫您查貨態。\n請問您方便提供${formatMissingOrderFields()}嗎？`;
   }
 
-  if (classification.intent === "order_status" && orderStatus) {
+  if (classification.intent === "order_status" && orderStatus?.found) {
     return buildOrderStatusReply(orderStatus);
   }
 
@@ -219,16 +224,8 @@ async function buildReply({
     return buildReturnInformationRequestReply();
   }
 
-  if (classification.intent === "return_request" && decision.decision === "needs_review") {
-    return buildReturnHandoffReply();
-  }
-
-  if (classification.intent === "order_status" && decision.decision === "needs_review") {
-    return "十分抱歉，我目前沒有查到這筆貨態。\n我已經把您提供的資料整理到客服後台，客服人員會協助確認。";
-  }
-
   if (decision.decision === "needs_review") {
-    return "十分抱歉讓您需要等候真人客服協助。\n我已經把您的問題摘要與目前對話紀錄整理到客服後台，客服人員會接手確認。\n您也可以再補充訂單編號、商品名稱或其他細節，讓客服更快處理。";
+    return "請稍後，客服人員將很快為您服務。";
   }
 
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) {
@@ -315,11 +312,13 @@ function isOrderStatusRequest(message, identifiers = {}) {
 
 function appendContinuationPrompt(reply, {
   conversationEnded,
+  decision,
   classification,
   missingProductFields,
   missingOrderFields
 }) {
   if (conversationEnded) return reply;
+  if (decision?.decision === "needs_review") return reply;
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) return reply;
   if (classification.intent === "order_status" && missingOrderFields.length > 0) return reply;
   if (classification.intent === "return_request") return reply;
@@ -369,8 +368,9 @@ function buildSupportSummary({
     return [
       "客服摘要：商品推薦",
       recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "推薦商品：尚未推薦",
+      formatProductFollowUpSummary(classification),
       `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`
-    ].join("｜");
+    ].filter(Boolean).join("｜");
   }
 
   return [
@@ -393,4 +393,20 @@ function normalizeAttachments(attachments = []) {
       size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
       dataUrl: String(item.dataUrl || item.data_url || "").slice(0, 2_000_000)
     }));
+}
+
+function formatProductFollowUpSummary(classification = {}) {
+  if (!classification.follow_up) return "";
+
+  const labels = {
+    alternative: "追問其他品項",
+    cheaper: "追問更低價品項",
+    budget_refinement: "補充預算條件",
+    need_refinement: "補充用途條件",
+    context_continuation: "延續上一輪商品推薦"
+  };
+  const excluded = classification.exclude_product_codes?.length
+    ? `，排除前次商品：${classification.exclude_product_codes.join(", ")}`
+    : "";
+  return `上下文：${labels[classification.follow_up] || classification.follow_up}${excluded}`;
 }
