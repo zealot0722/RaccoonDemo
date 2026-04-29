@@ -7,6 +7,7 @@ import chatHandler from "../api/chat.js";
 import feedbackHandler from "../api/feedback.js";
 import healthHandler from "../api/health.js";
 import ticketsHandler from "../api/tickets/index.js";
+import ticketUpdateHandler from "../api/tickets/[id].js";
 import replyHandler from "../api/tickets/[id]/reply.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -19,6 +20,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/feedback") return feedbackHandler(req, res);
   if (url.pathname === "/api/health") return healthHandler(req, res);
   if (url.pathname === "/api/tickets") return ticketsHandler(req, res);
+
+  const ticketMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)$/);
+  if (ticketMatch) {
+    req.query = { id: decodeURIComponent(ticketMatch[1]) };
+    return ticketUpdateHandler(req, res);
+  }
 
   const replyMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)\/reply$/);
   if (replyMatch) {

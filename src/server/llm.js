@@ -1,4 +1,5 @@
 import { getConfig, hasGroqConfig } from "./config.js";
+import { applyMessageQualityGuardrail, isChitchatInput, isLikelyUnclearInput } from "./message-quality.js";
 import { extractOrderIdentifiersFromText } from "./order-status.js";
 import { buildClassificationPrompt, buildReplyPrompt } from "./prompts.js";
 import { getMissingReturnFields, isReturnRequestMessage } from "./return-request.js";
@@ -76,6 +77,28 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const priorProductContext = hasRecentProductContext(conversationHistory);
   const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|其他|別的|還有嗎|還有其他|換一個|不同|更便宜|便宜一點|預算|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯/.test(text);
   const budgetMatch = text.replace(/[,，]/g, "").match(/(\d+)\s*(元|塊|以內|以下)?/);
+
+  if (isLikelyUnclearInput(text)) {
+    return normalizeClassification({
+      intent: "unclear",
+      confidence: 0.9,
+      tone: "neutral",
+      need_human: false,
+      summary: "客戶輸入無法辨識的內容",
+      keywords: ["unclear"]
+    }, message);
+  }
+
+  if (isChitchatInput(text)) {
+    return normalizeClassification({
+      intent: "chitchat",
+      confidence: 0.86,
+      tone: "neutral",
+      need_human: false,
+      summary: "客戶輸入閒聊或招呼語",
+      keywords: ["chitchat"]
+    }, message);
+  }
 
   if (wantsHuman) {
     return normalizeClassification({
@@ -187,6 +210,10 @@ function fallbackReply({ classification, matchedFaq, recommendedProducts }) {
     return "請您補充預算、用途或想找的品類，我才能幫您縮小商品範圍。";
   }
 
+  if (classification.intent === "unclear" || classification.intent === "chitchat") {
+    return "請您重新敘述您的問題，或直接描述需要協助的事項。";
+  }
+
   return "目前我可以協助您查詢退換貨、付款、配送、保固，或協助您挑選商品。";
 }
 
@@ -199,6 +226,7 @@ function normalizeClassification(raw, message) {
     "complaint",
     "human_handoff",
     "conversation_end",
+    "unclear",
     "out_of_scope",
     "chitchat"
   ].includes(raw?.intent)
@@ -222,7 +250,7 @@ function normalizeClassification(raw, message) {
     keywords: Array.isArray(raw?.keywords) ? raw.keywords : []
   };
 
-  return applyWorkflowGuardrails(result, message);
+  return applyWorkflowGuardrails(applyMessageQualityGuardrail(result, message), message);
 }
 
 function applyWorkflowGuardrails(classification, message) {

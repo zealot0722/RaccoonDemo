@@ -15,11 +15,14 @@ export function buildClassificationPrompt({ message, conversationHistory = [] })
 - complaint
 - human_handoff
 - conversation_end
+- unclear
 - out_of_scope
 - chitchat
 
 conversation_end 用於使用者表示本次對話已結束，例如「謝謝，先這樣」、「目前沒有其他問題」。
 若句子同時包含新問題，例如「謝謝，那退貨怎麼辦？」，不要分類為 conversation_end。
+unclear 用於無法辨識的亂碼、無意義數字、無意義英文或符號，例如「123123123」、「asdfasdf」、「????」。
+chitchat 用於招呼、寒暄或沒有客服需求的閒聊，例如「你好」、「哈囉」、「在嗎」。
 order_status 用於使用者查詢訂單、物流、出貨、配送進度或貨態。
 若可辨識訂單編號或物流單號，請填入 order_no 或 tracking_no；若沒有可用編號，兩者留空，missing_fields 填入 ["order_identifier"]。
 RAC1001、ORD1001、RC123456789TW 這類字串在查貨態語境中是訂單或物流編號，不是商品代號，也不要分類為 FAQ。

@@ -2,6 +2,12 @@ import { decideNextAction } from "./decision.js";
 import { findBestFaq } from "./faq.js";
 import { classifyMessage, generateReply } from "./llm.js";
 import {
+  LOW_VALUE_INTENTS,
+  applyMessageQualityGuardrail,
+  countRecentLowValueCustomerTurns,
+  isLowValueSupportTurn
+} from "./message-quality.js";
+import {
   buildOrderStatusReply,
   formatMissingOrderFields,
   getMissingOrderFields,
@@ -61,11 +67,16 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
         config: options.config,
         conversationHistory
       });
-  const routedClassification = applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory);
+  const qualityClassification = applyMessageQualityGuardrail(classificationResult, messageForClassification);
+  const routedClassification = applyWorkflowRouting(qualityClassification, messageForClassification, conversationHistory);
   const classification = explicitConversationEnd
     ? routedClassification
     : enrichProductClassification(routedClassification, messageForClassification, conversationHistory);
-  const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
+  const unclearTurnCount = isLowValueSupportTurn(classification, messageForClassification)
+    ? countRecentLowValueCustomerTurns(conversationHistory) + 1
+    : 0;
+  const autoCloseForUnclear = LOW_VALUE_INTENTS.has(classification.intent) && unclearTurnCount >= 3;
+  const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end" || autoCloseForUnclear;
 
   const missingProductFields = getMissingProductFields(classification);
   const missingOrderFields = getMissingOrderFields(classification, cleanMessage);
@@ -73,10 +84,12 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
     : null;
-  const recommendedProducts = classification.intent === "product_recommendation" &&
-    missingProductFields.length === 0
-    ? recommendProducts(products, classification)
-    : [];
+  const recommendedProducts = buildRecommendedProducts({
+    products,
+    classification,
+    missingProductFields,
+    autoCloseForUnclear
+  });
 
   const orderIdentifiers = getOrderIdentifiers(classification, cleanMessage);
   const orderStatus = classification.intent === "order_status" && missingOrderFields.length === 0
@@ -119,6 +132,8 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
     orderStatus,
     conversationHistory,
     conversationEnded,
+    unclearTurnCount,
+    autoCloseForUnclear,
     config: options.config
   });
   const reply = formatAssistantReply(appendContinuationPrompt(rawReply, {
@@ -166,6 +181,8 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
       order_identifiers: orderIdentifiers,
       order_status: orderStatus,
       missing_return_fields: missingReturnFields,
+      unclear_turn_count: unclearTurnCount,
+      auto_closed_for_unclear: autoCloseForUnclear,
       attachments: cleanAttachments,
       support_summary: supportSummary,
       context_message_count: conversationHistory.length
@@ -188,6 +205,8 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
     missingReturnFields,
     orderStatus,
     conversationEnded,
+    unclearTurnCount,
+    autoClosed: autoCloseForUnclear,
     mode: repo.mode
   };
 }
@@ -205,8 +224,14 @@ async function buildReply({
   orderStatus,
   conversationHistory,
   conversationEnded,
+  unclearTurnCount,
+  autoCloseForUnclear,
   config
 }) {
+  if (autoCloseForUnclear) {
+    return "請您重新敘述您的問題，或提供需要協助的事項。\n若您無待處理問題，本次對話將會關閉。\n若方便，請為這次服務留下評分。";
+  }
+
   if (conversationEnded) {
     return "謝謝您願意使用 Raccoon 客服。\n若方便的話，請為這次服務留下評分，您的回饋會協助我們把回覆調整得更貼近需求。";
   }
@@ -225,6 +250,14 @@ async function buildReply({
 
   if (decision.decision === "needs_review") {
     return "請稍後，客服人員將很快為您服務。";
+  }
+
+  if (classification.intent === "unclear") {
+    return buildUnclearReply(recommendedProducts);
+  }
+
+  if (classification.intent === "chitchat") {
+    return buildChitchatReply(unclearTurnCount);
   }
 
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) {
@@ -253,6 +286,23 @@ async function buildReply({
   }, { config });
 }
 
+function buildRecommendedProducts({
+  products,
+  classification,
+  missingProductFields,
+  autoCloseForUnclear
+}) {
+  if (classification.intent === "product_recommendation" && missingProductFields.length === 0) {
+    return recommendProducts(products, classification);
+  }
+
+  if (classification.intent === "unclear" && !autoCloseForUnclear) {
+    return products.slice(0, 3);
+  }
+
+  return [];
+}
+
 export function isConversationEndMessage(message) {
   return /^(沒有|沒有了|沒了|沒問題|不用了|不需要了|好了|可以了|先這樣|ok|OK|謝謝|感謝|謝謝您|謝謝你|沒其他了|沒事了)[。！!.\s]*$/i.test(
     String(message || "").trim()
@@ -265,6 +315,22 @@ function buildMissingProductReply(fields) {
   }
 
   return `可以的，我先幫您縮小範圍。\n請問您方便補充${formatMissingProductFields(fields)}嗎？`;
+}
+
+function buildUnclearReply(products = []) {
+  if (products.length) {
+    return "請您重新敘述您的問題，或者您可以考慮下面產品。\n如果您有退換貨、付款、配送、保固或查貨態需求，也可以直接提供相關資料。";
+  }
+
+  return "請您重新敘述您的問題，或補充需要協助的事項。\n我可以協助退換貨、付款、配送、保固、查貨態或商品推薦。";
+}
+
+function buildChitchatReply(turnCount) {
+  if (turnCount >= 2) {
+    return "請您重新敘述您的問題，或直接描述需要協助的事項。\n如果沒有待處理問題，我會在下一次無法辨識需求時結束本次對話。";
+  }
+
+  return "您好，請您重新敘述您的問題，或直接描述需要協助的事項。\n我可以協助退換貨、付款、配送、保固、查貨態或商品推薦。";
 }
 
 function applyWorkflowRouting(classification, message, conversationHistory = []) {
@@ -318,6 +384,7 @@ function appendContinuationPrompt(reply, {
 }) {
   if (conversationEnded) return reply;
   if (decision?.decision === "needs_review") return reply;
+  if (LOW_VALUE_INTENTS.has(classification.intent)) return reply;
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) return reply;
   if (classification.intent === "order_status" && missingOrderFields.length > 0) return reply;
   if (classification.intent === "return_request") return reply;
@@ -369,6 +436,14 @@ function buildSupportSummary({
       recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "推薦商品：尚未推薦",
       formatProductFollowUpSummary(classification),
       `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`
+    ].filter(Boolean).join("｜");
+  }
+
+  if (LOW_VALUE_INTENTS.has(intent)) {
+    return [
+      `客服摘要：${intent === "unclear" ? "不明輸入" : "閒聊訊息"}`,
+      message ? `內容：${message.slice(0, 40)}` : "",
+      "處理：請客戶重新敘述問題"
     ].filter(Boolean).join("｜");
   }
 

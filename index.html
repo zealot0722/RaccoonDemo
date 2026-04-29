@@ -47,10 +47,10 @@
           <div class="quick-actions">
             <button data-prompt="請問商品可以退貨嗎？">退貨 FAQ</button>
             <button data-prompt="我想找 1000 元內的新手商品">新手推薦</button>
-            <button data-prompt="推薦商品">條件不足</button>
             <button data-prompt="我想查 RAC1001 的貨態">查貨態</button>
             <button data-prompt="我要找真人客服">轉真人</button>
             <button data-prompt="你們服務太差了，我要客訴">客訴</button>
+            <button data-prompt="沒有了">結束對話</button>
           </div>
 
           <div class="messages" id="messages" aria-live="polite"></div>
@@ -111,6 +111,7 @@
           </div>
           <button id="refresh-tickets">重新整理</button>
         </div>
+        <div class="ticket-stats" id="ticket-stats" aria-label="工單數量總覽"></div>
         <div class="admin-grid">
           <div class="ticket-list" id="ticket-list"></div>
           <div class="ticket-detail" id="ticket-detail">

@@ -28,7 +28,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -97,6 +98,7 @@ a:hover {
 .chat-shell button,
 .admin-header button,
 .reply-box button,
+.ticket-update-panel button,
 .product-detail button {
   min-height: 38px;
   padding: 0 14px;
@@ -113,6 +115,7 @@ a:hover {
 .chat-shell button[type="submit"],
 .admin-header button,
 .reply-box button,
+.ticket-update-panel button,
 .product-detail button {
   background: var(--primary);
   color: #fff;
@@ -221,6 +224,16 @@ a:hover {
 .badge.warn {
   background: #fff0e8;
   color: var(--danger);
+}
+
+.badge.done {
+  background: #e7f7ed;
+  color: #1f7a3f;
+}
+
+.badge.info {
+  background: #eaf2ff;
+  color: #245a9f;
 }
 
 .quick-actions {
@@ -437,7 +450,8 @@ a:hover {
 .composer input,
 .reply-box textarea,
 .feedback-panel textarea,
-.access-box input {
+.access-box input,
+.ticket-update-panel select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -455,7 +469,8 @@ a:hover {
 .composer input:focus,
 .reply-box textarea:focus,
 .feedback-panel textarea:focus,
-.access-box input:focus {
+.access-box input:focus,
+.ticket-update-panel select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
@@ -611,9 +626,43 @@ a:hover {
   gap: 16px;
 }
 
+.ticket-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.stat-item span,
+.ticket-time,
+.update-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stat-item strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.stat-item.warn {
+  border-color: #f3c7bd;
+  background: #fff8f5;
+}
+
 .admin-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -627,6 +676,8 @@ a:hover {
   display: grid;
   align-content: start;
   gap: 10px;
+  max-height: calc(100vh - 285px);
+  overflow-y: auto;
 }
 
 .ticket-card {
@@ -637,13 +688,59 @@ a:hover {
   cursor: pointer;
 }
 
+.ticket-card.urgent {
+  border-color: #f3c7bd;
+}
+
 .ticket-card.active {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
+.ticket-card-head,
+.badge-row,
+.detail-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ticket-card-head {
+  justify-content: space-between;
+}
+
+.badge-row {
+  margin-top: 8px;
+}
+
 .ticket-no {
   font-weight: 700;
+}
+
+.ticket-update-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.ticket-update-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ticket-update-panel .update-status {
+  grid-column: 1 / -1;
+  min-height: 16px;
 }
 
 .decision-grid {
@@ -791,6 +888,14 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .ticket-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ticket-list {
+    max-height: 46vh;
+  }
+
   .chat-shell {
     min-height: auto;
     grid-template-rows: auto auto minmax(360px, 55vh) auto auto;
@@ -826,6 +931,11 @@ a:hover {
   }
 
   .decision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-update-panel,
+  .ticket-stats {
     grid-template-columns: 1fr;
   }
 }

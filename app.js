@@ -1,4 +1,11 @@
 import { canSendChatMessage, lockChatAfterFeedback } from "./src/client/chat-lock.js";
+import {
+  TICKET_PRIORITY_OPTIONS,
+  TICKET_STATUS_OPTIONS,
+  getTicketPriorityMeta,
+  getTicketStatusMeta,
+  summarizeTicketStats
+} from "./src/client/ticket-ui.js";
 
 const PRODUCTS = [
   {
@@ -55,23 +62,27 @@ const PRODUCTS = [
   }
 ];
 
+const CHAT_STATE_KEY = "raccoon-chat-state";
+const DEFAULT_MESSAGES = [
+  {
+    role: "ai",
+    content: "您好，歡迎使用 Raccoon 客服。\n很高興為您服務，您可以直接描述遇到的問題，或告訴我想找什麼樣的商品。"
+  }
+];
+const restoredState = loadConversationState();
+
 const state = {
-  messages: [
-    {
-      role: "ai",
-      content: "您好，歡迎使用 Raccoon 客服。\n很高興為您服務，您可以直接描述遇到的問題，或告訴我想找什麼樣的商品。"
-    }
-  ],
-  productHistory: [],
+  messages: restoredState.messages || DEFAULT_MESSAGES.map((message) => ({ ...message })),
+  productHistory: restoredState.productHistory || [],
   pendingAttachments: [],
-  lastResult: null,
+  lastResult: restoredState.lastResult || null,
   tickets: [],
   selectedTicketId: null,
-  sessionId: getSessionId(),
+  sessionId: restoredState.sessionId || getSessionId(),
   accessCodeRequired: false,
   accessCode: sessionStorage.getItem("raccoon-demo-access-code") || "",
-  feedbackSubmittedFor: new Set(),
-  chatLocked: false
+  feedbackSubmittedFor: new Set(restoredState.feedbackSubmittedFor || []),
+  chatLocked: Boolean(restoredState.chatLocked)
 };
 
 const els = {
@@ -96,6 +107,7 @@ const els = {
   productHistoryDock: document.querySelector("#product-history-dock"),
   healthPill: document.querySelector("#health-pill"),
   modePill: document.querySelector("#mode-pill"),
+  ticketStats: document.querySelector("#ticket-stats"),
   ticketList: document.querySelector("#ticket-list"),
   ticketDetail: document.querySelector("#ticket-detail")
 };
@@ -106,6 +118,7 @@ function init() {
   renderMessages();
   renderFeedbackPanel();
   renderProductHistory();
+  setSending(false);
   bindEvents();
   checkHealth();
   route();
@@ -139,8 +152,19 @@ function bindEvents() {
     });
   });
 
-  document.querySelectorAll("[data-route]").forEach((button) => {
-    button.addEventListener("click", () => navigate(button.dataset.route));
+  document.addEventListener("click", (event) => {
+    const routeButton = event.target.closest("[data-route]");
+    if (routeButton) {
+      event.preventDefault();
+      navigate(routeButton.dataset.route);
+      return;
+    }
+
+    const appLink = event.target.closest("a[data-app-route]");
+    if (!appLink || event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(new URL(appLink.href).pathname);
   });
 
   document.querySelector("#refresh-tickets").addEventListener("click", loadTickets);
@@ -167,6 +191,7 @@ async function sendMessage(content, attachments = []) {
   const outgoingContent = content || "已上傳商品照片";
   state.messages.push({ role: "customer", content: outgoingContent, attachments });
   state.lastResult = null;
+  persistConversationState();
   renderMessages();
   renderFeedbackPanel();
   setSending(true);
@@ -193,6 +218,11 @@ async function sendMessage(content, attachments = []) {
       products: data.recommendedProducts || [],
       ticketId: data.ticket?.id
     });
+    if (data.autoClosed) {
+      state.chatLocked = true;
+      state.pendingAttachments = [];
+    }
+    persistConversationState({ force: Boolean(data.autoClosed) });
     renderMessages();
     renderFeedbackPanel();
     renderProductHistory();
@@ -204,6 +234,7 @@ async function sendMessage(content, attachments = []) {
       role: "system",
       content: `目前無法完成回覆：${error.message}`
     });
+    persistConversationState();
     renderMessages();
   } finally {
     setSending(false);
@@ -296,7 +327,7 @@ function renderMessageProducts(products) {
               <span>${escapeHtml(product.stock_status || "")}</span>
             </div>
             <p>${escapeHtml(product.description_zh || "")}</p>
-            <a href="${escapeAttr(product.product_url || `/products/${product.code}`)}">查看商品詳情</a>
+            <a data-app-route href="${escapeAttr(product.product_url || `/products/${product.code}`)}">查看商品詳情</a>
           </div>
         </article>
       `).join("")}
@@ -328,7 +359,7 @@ function renderProductHistory() {
     <div class="history-title">剛剛推薦過</div>
     <div class="history-list">
       ${state.productHistory.map((product) => `
-        <a class="history-product" href="${escapeAttr(product.product_url || `/products/${product.code}`)}">
+        <a class="history-product" data-app-route href="${escapeAttr(product.product_url || `/products/${product.code}`)}">
           <img src="${escapeAttr(product.image_url)}" alt="${escapeAttr(product.name_zh)}">
           <span>
             <strong>${escapeHtml(product.name_zh)}</strong>
@@ -373,6 +404,7 @@ async function submitFeedback(score) {
     if (!response.ok) throw new Error(data.message || "評分寫入失敗");
     lockChatAfterFeedback(state, ticketId);
     localStorage.removeItem("raccoon-session-id");
+    clearConversationState();
     renderMessages();
     renderAttachmentPreview();
     renderFeedbackPanel();
@@ -414,6 +446,7 @@ async function loadTickets() {
     if (!state.selectedTicketId && state.tickets.length) {
       state.selectedTicketId = state.tickets[0].id;
     }
+    renderTicketStats();
     renderTickets();
   } catch (error) {
     if (error.message.includes("access code")) {
@@ -425,23 +458,32 @@ async function loadTickets() {
 
 function renderTickets() {
   if (!state.tickets.length) {
+    renderTicketStats();
     els.ticketList.innerHTML = '<div class="empty">目前沒有工單。</div>';
     els.ticketDetail.innerHTML = '<div class="empty">請選擇一張工單查看細節。</div>';
     return;
   }
 
   els.ticketList.innerHTML = state.tickets
-    .map((ticket) => `
-      <article class="ticket-card ${ticket.id === state.selectedTicketId ? "active" : ""}" data-ticket-id="${escapeAttr(ticket.id)}">
-        <div class="ticket-no">${escapeHtml(ticket.ticket_no)}</div>
-        <div class="product-meta">
-          <span>${escapeHtml(ticket.status || "-")}</span>
-          <span>${escapeHtml(ticket.intent || "-")}</span>
+    .map((ticket) => {
+      const statusMeta = getTicketStatusMeta(ticket.status);
+      const priorityMeta = getTicketPriorityMeta(ticket.priority, ticket.ai_decision?.tone);
+      return `
+      <article class="ticket-card ${ticket.id === state.selectedTicketId ? "active" : ""} ${priorityMeta.className === "warn" ? "urgent" : ""}" data-ticket-id="${escapeAttr(ticket.id)}">
+        <div class="ticket-card-head">
+          <div class="ticket-no">${escapeHtml(ticket.ticket_no)}</div>
+          <span class="ticket-time">${formatTimeAgo(ticket.created_at)}</span>
+        </div>
+        <div class="badge-row">
+          <span class="badge ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>
+          <span class="badge ${priorityMeta.className}">${escapeHtml(priorityMeta.label)}</span>
+          <span class="badge ghost">${escapeHtml(ticket.intent || "-")}</span>
         </div>
         <div class="ticket-summary">${escapeHtml(ticket.summary || "")}</div>
         ${ticket.feedback ? `<div class="ticket-score">CSAT ${escapeHtml(ticket.feedback.score)}/5</div>` : ""}
       </article>
-    `)
+    `;
+    })
     .join("");
 
   els.ticketList.querySelectorAll("[data-ticket-id]").forEach((card) => {
@@ -454,6 +496,18 @@ function renderTickets() {
   renderTicketDetail(state.tickets.find((ticket) => ticket.id === state.selectedTicketId));
 }
 
+function renderTicketStats() {
+  if (!els.ticketStats) return;
+  const stats = summarizeTicketStats(state.tickets);
+  els.ticketStats.innerHTML = `
+    <div class="stat-item"><span>全部</span><strong>${stats.total}</strong></div>
+    <div class="stat-item"><span>未完成</span><strong>${stats.unfinished}</strong></div>
+    <div class="stat-item"><span>待接手</span><strong>${stats.needsReview}</strong></div>
+    <div class="stat-item warn"><span>緊急</span><strong>${stats.urgent}</strong></div>
+    <div class="stat-item"><span>已完成</span><strong>${stats.completed}</strong></div>
+  `;
+}
+
 function renderTicketDetail(ticket) {
   if (!ticket) {
     els.ticketDetail.innerHTML = '<div class="empty">請選擇一張工單查看細節。</div>';
@@ -462,14 +516,39 @@ function renderTicketDetail(ticket) {
 
   const decision = ticket.ai_decision || {};
   const decisionAttachments = getDecisionAttachments(ticket, decision);
+  const statusMeta = getTicketStatusMeta(ticket.status);
+  const priorityMeta = getTicketPriorityMeta(ticket.priority, decision.tone);
   els.ticketDetail.innerHTML = `
     <div class="detail-head">
       <div>
         <h2>${escapeHtml(ticket.ticket_no)}</h2>
         <p class="ticket-summary">${escapeHtml(ticket.summary || "")}</p>
       </div>
-      <span class="badge ${ticket.status === "needs_review" ? "warn" : ""}">${escapeHtml(ticket.status || "-")}</span>
+      <div class="detail-badges">
+        <span class="badge ${statusMeta.className}">${escapeHtml(statusMeta.label)}</span>
+        <span class="badge ${priorityMeta.className}">${escapeHtml(priorityMeta.label)}</span>
+      </div>
     </div>
+    <form class="ticket-update-panel" data-ticket-update-form>
+      <label>
+        <span>後續處置</span>
+        <select name="status">
+          ${TICKET_STATUS_OPTIONS.map((option) => `
+            <option value="${escapeAttr(option.value)}" ${option.value === ticket.status ? "selected" : ""}>${escapeHtml(option.label)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <label>
+        <span>工單分級</span>
+        <select name="priority">
+          ${TICKET_PRIORITY_OPTIONS.map((option) => `
+            <option value="${escapeAttr(option.value)}" ${option.value === (ticket.priority || "normal") ? "selected" : ""}>${escapeHtml(option.label)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <button type="submit">儲存</button>
+      <div class="update-status" data-update-status></div>
+    </form>
     <dl class="decision-grid">
       <div><dt>intent</dt><dd>${escapeHtml(decision.intent || ticket.intent || "-")}</dd></div>
       <div><dt>confidence</dt><dd>${formatConfidence(decision.confidence)}</dd></div>
@@ -506,6 +585,15 @@ function renderTicketDetail(ticket) {
     if (!content) return;
     await postAgentReply(ticket.id, content);
   });
+
+  els.ticketDetail.querySelector("[data-ticket-update-form]").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    await updateTicket(ticket.id, {
+      status: formData.get("status"),
+      priority: formData.get("priority")
+    });
+  });
 }
 
 function getDecisionAttachments(ticket, decision) {
@@ -527,6 +615,29 @@ async function postAgentReply(ticketId, content) {
     return;
   }
   await loadTickets();
+}
+
+async function updateTicket(ticketId, updates) {
+  const statusEl = els.ticketDetail.querySelector("[data-update-status]");
+  if (statusEl) statusEl.textContent = "儲存中...";
+
+  const response = await fetch(`/api/tickets/${encodeURIComponent(ticketId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", ...accessHeaders() },
+    body: JSON.stringify({ ...updates, accessCode: state.accessCode })
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    if (statusEl) statusEl.textContent = data.message || "儲存失敗";
+    return;
+  }
+
+  const index = state.tickets.findIndex((ticket) => ticket.id === ticketId);
+  if (index >= 0) state.tickets[index] = { ...state.tickets[index], ...data.ticket };
+  if (statusEl) statusEl.textContent = "已更新";
+  renderTicketStats();
+  renderTickets();
 }
 
 async function checkAccessCode() {
@@ -607,7 +718,7 @@ function renderProductDetail(code) {
         <div class="tag-row">
           ${[...product.tags, ...product.use_cases].map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
         </div>
-        <button onclick="history.back()">返回</button>
+        <button type="button" data-route="/">返回客服</button>
       </div>
     </div>
   `;
@@ -626,6 +737,40 @@ function setSending(isSending) {
   els.photoInput.disabled = locked;
   els.form.classList.toggle("locked", locked);
   els.sendBtn.textContent = locked ? "已結束" : isSending ? "處理中" : "送出";
+}
+
+function loadConversationState() {
+  try {
+    const value = sessionStorage.getItem(CHAT_STATE_KEY);
+    if (!value) return {};
+    const parsed = JSON.parse(value);
+    return {
+      messages: Array.isArray(parsed.messages) && parsed.messages.length ? parsed.messages : null,
+      productHistory: Array.isArray(parsed.productHistory) ? parsed.productHistory : [],
+      lastResult: parsed.lastResult || null,
+      sessionId: parsed.sessionId || "",
+      feedbackSubmittedFor: Array.isArray(parsed.feedbackSubmittedFor) ? parsed.feedbackSubmittedFor : [],
+      chatLocked: Boolean(parsed.chatLocked)
+    };
+  } catch {
+    return {};
+  }
+}
+
+function persistConversationState({ force = false } = {}) {
+  if (state.chatLocked && !force) return;
+  sessionStorage.setItem(CHAT_STATE_KEY, JSON.stringify({
+    messages: state.messages,
+    productHistory: state.productHistory,
+    lastResult: state.lastResult,
+    sessionId: state.sessionId,
+    feedbackSubmittedFor: [...state.feedbackSubmittedFor],
+    chatLocked: state.chatLocked
+  }));
+}
+
+function clearConversationState() {
+  sessionStorage.removeItem(CHAT_STATE_KEY);
 }
 
 function getSessionId() {
@@ -648,6 +793,18 @@ function formatProductCodes(value) {
   if (Array.isArray(value)) return value.join(", ") || "-";
   if (typeof value === "string") return value || "-";
   return "-";
+}
+
+function formatTimeAgo(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds} 秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小時前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function escapeHtml(value) {

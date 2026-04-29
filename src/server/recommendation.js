@@ -265,7 +265,7 @@ function buildContextualKeywords(keywords = [], message = "") {
 }
 
 function isProtectedIntent(intent) {
-  return ["human_handoff", "complaint", "return_request", "order_status"].includes(intent);
+  return ["human_handoff", "complaint", "return_request", "order_status", "unclear", "chitchat"].includes(intent);
 }
 
 function isFreshProductRequest(message = "") {

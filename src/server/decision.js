@@ -93,6 +93,10 @@ export function decideNextAction({
     reasons.push("已找到符合條件的商品，將商品資訊放入聊天訊息。");
   } else if (intent === "product_recommendation") {
     reasons.push("未找到符合條件的商品，不產生未查證商品。");
+  } else if (intent === "unclear") {
+    reasons.push("客戶輸入無法辨識，請客戶重新敘述問題。");
+  } else if (intent === "chitchat") {
+    reasons.push("客戶訊息為閒聊或招呼，請客戶描述實際需求。");
   } else if (intent === "order_status") {
     // Order-status reasons are handled above because found and missing records diverge.
   } else if (intent === "faq" && matchedFaq) {

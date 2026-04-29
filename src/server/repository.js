@@ -1,5 +1,6 @@
 import { demoFaqArticles, demoOrderStatuses, demoProducts } from "./demo-data.js";
 import { getConfig, hasSupabaseConfig } from "./config.js";
+import { normalizeTicketUpdate } from "../client/ticket-ui.js";
 
 const memory = {
   tickets: [
@@ -118,6 +119,18 @@ function createMemoryRepository() {
     },
     async listTickets() {
       return memory.tickets.map((ticket) => hydrateMemoryTicket(ticket));
+    },
+    async updateTicket(ticketId, updates) {
+      const payload = normalizeTicketUpdate(updates);
+      const ticket = memory.tickets.find((item) => item.id === ticketId);
+      if (!ticket) {
+        const error = new Error("ticket not found");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      Object.assign(ticket, payload, { updated_at: new Date().toISOString() });
+      return hydrateMemoryTicket(ticket);
     },
     async addAgentReply(ticketId, { content, staffName }) {
       const message = await this.createMessage({
@@ -293,6 +306,24 @@ function createSupabaseRepository(config) {
           };
         })
       );
+    },
+    async updateTicket(ticketId, updates) {
+      const payload = normalizeTicketUpdate(updates);
+      const data = await request(`tickets?id=eq.${encodeURIComponent(ticketId)}&select=*`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...payload,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      if (!data[0]) {
+        const error = new Error("ticket not found");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      return data[0];
     },
     async addAgentReply(ticketId, { content, staffName }) {
       const message = await this.createMessage({

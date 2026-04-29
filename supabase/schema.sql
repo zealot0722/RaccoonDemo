@@ -96,6 +96,8 @@ create table if not exists csat_feedback (
 );
 
 create index if not exists idx_tickets_created_at on tickets(created_at desc);
+create index if not exists idx_tickets_status on tickets(status);
+create index if not exists idx_tickets_priority on tickets(priority);
 create index if not exists idx_messages_ticket_id on messages(ticket_id, created_at);
 create index if not exists idx_ai_decisions_ticket_id on ai_decisions(ticket_id, created_at desc);
 create index if not exists idx_csat_feedback_ticket_id on csat_feedback(ticket_id, created_at desc);

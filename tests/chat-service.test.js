@@ -478,6 +478,108 @@ test("keeps product follow-up when Groq misclassifies alternatives as conversati
   }
 });
 
+test("routes numeric gibberish away from product recommendations even with product context", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找 1000 元內的新手商品" },
+      { role: "ai", content: "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001" }
+    ]
+  });
+  const result = await handleChat({
+    message: "123123123",
+    sessionId: "test-session-gibberish-product-context"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "unclear");
+  assert.equal(result.conversationEnded, false);
+  assert.ok(result.recommendedProducts.length > 0);
+  assert.match(result.reply, /請您重新敘述您的問題/);
+  assert.match(result.reply, /下面產品/);
+  assert.doesNotMatch(result.reply, /依照您的需求/);
+});
+
+test("keeps Groq product misclassification from turning gibberish into recommendations", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "product_recommendation",
+              confidence: 0.82,
+              summary: "模型誤判為商品推薦",
+              tone: "neutral",
+              budget: 123123123,
+              missing_fields: [],
+              keywords: ["商品"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "123123123",
+      sessionId: "test-session-groq-gibberish-guardrail"
+    }, {
+      repo: createContextRepo({ recentMessages: [] }),
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(result.classification.intent, "unclear");
+    assert.match(result.reply, /請您重新敘述您的問題/);
+    assert.ok(result.recommendedProducts.length > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("auto closes after three consecutive low-value customer turns", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "asdfasdf" },
+      { role: "ai", content: "請您重新敘述您的問題。" },
+      { role: "customer", content: "987987987" },
+      { role: "ai", content: "請您重新敘述您的問題。" }
+    ]
+  });
+  const result = await handleChat({
+    message: "123123123",
+    sessionId: "test-session-gibberish-close"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "unclear");
+  assert.equal(result.unclearTurnCount, 3);
+  assert.equal(result.autoClosed, true);
+  assert.equal(result.conversationEnded, true);
+  assert.equal(result.recommendedProducts.length, 0);
+  assert.match(result.reply, /若您無待處理問題，本次對話將會關閉/);
+});
+
+test("chitchat asks the customer to restate the support issue", async () => {
+  const result = await handleChat({
+    message: "哈囉",
+    sessionId: "test-session-chitchat"
+  }, {
+    repo: createContextRepo({ recentMessages: [] })
+  });
+
+  assert.equal(result.classification.intent, "chitchat");
+  assert.equal(result.recommendedProducts.length, 0);
+  assert.match(result.reply, /請您重新敘述您的問題/);
+  assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
+});
+
 function createContextRepo({ recentMessages = null, productOverrides = null } = {}) {
   const tickets = [];
   const messages = [];
