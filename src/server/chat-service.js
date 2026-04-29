@@ -350,7 +350,7 @@ function applyWorkflowRouting(classification, message, conversationHistory = [])
   }
 
   const identifiers = getOrderIdentifiers({}, message);
-  if (!isOrderStatusRequest(message, identifiers)) {
+  if (!isOrderStatusRequest(message, identifiers, conversationHistory)) {
     return classification;
   }
 
@@ -366,13 +366,19 @@ function applyWorkflowRouting(classification, message, conversationHistory = [])
   };
 }
 
-function isOrderStatusRequest(message, identifiers = {}) {
+function isOrderStatusRequest(message, identifiers = {}, conversationHistory = []) {
   const text = String(message || "");
   if (identifiers.orderNo || identifiers.trackingNo) {
-    return /查|貨態|物流|配送|出貨|到貨|包裹|訂單/.test(text);
+    return hasRecentOrderContext(conversationHistory) || /查|貨態|物流|配送|出貨|到貨|包裹|訂單/.test(text);
   }
 
-  return /查貨|貨態|物流單號|訂單編號|配送進度|包裹|出貨|到貨了嗎|到貨沒/.test(text);
+  return /查貨|貨態|物流單號|訂單編號|配送進度|包裹|出貨|到貨了嗎|到貨沒|怎麼還沒到|還沒到|物流到哪|包裹在哪/.test(text);
+}
+
+function hasRecentOrderContext(conversationHistory = []) {
+  return conversationHistory.slice(-6).some((item) => {
+    return /查貨|貨態|物流|配送|出貨|到貨|包裹|訂單編號|物流單號|訂單編號或物流單號/.test(String(item.content || ""));
+  });
 }
 
 function appendContinuationPrompt(reply, {

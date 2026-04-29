@@ -5,6 +5,7 @@ import {
   buildProductRecommendationReply,
   enrichProductClassification,
   getMissingProductFields,
+  normalizeBudget,
   recommendProducts
 } from "../src/server/recommendation.js";
 
@@ -69,6 +70,13 @@ test("asks for more detail when product request lacks budget and use case", () =
   });
 
   assert.deepEqual(missing, ["budget", "use_case"]);
+});
+
+test("parses conversational Chinese budget amounts", () => {
+  assert.equal(normalizeBudget("預算一千"), 1000);
+  assert.equal(normalizeBudget("兩千五以下"), 2500);
+  assert.equal(normalizeBudget("大概三百五"), 350);
+  assert.equal(normalizeBudget("2k"), 2000);
 });
 
 test("recommends Chinese products under budget", () => {

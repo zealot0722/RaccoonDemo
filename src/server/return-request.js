@@ -6,7 +6,11 @@ const FIELD_LABELS = {
 
 export function isReturnRequestMessage(message, conversationHistory = []) {
   const text = String(message || "");
+  if (isReturnPolicyQuestion(text)) return false;
   if (/退貨|退款|換貨|退換貨|退掉|想退|我要退/.test(text)) return true;
+  if (/(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件).*(商品|東西|貨|包裹)|收到.*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)/.test(text)) {
+    return true;
+  }
 
   return hasRecentReturnContext(conversationHistory) && looksLikeReturnDetails(text);
 }
@@ -70,6 +74,12 @@ function hasRecentReturnContext(conversationHistory = []) {
 
 function looksLikeReturnDetails(message = "") {
   return /(送貨貨號|貨號|物流單號|訂單編號|名稱|姓名|名字|電話|手機|照片|圖片|相片|09\d{8})/.test(String(message || ""));
+}
+
+function isReturnPolicyQuestion(message = "") {
+  const text = String(message || "");
+  if (/我要|想退|退掉|申請|辦理|收到|壞掉|破損|損壞|瑕疵|故障|不能用/.test(text)) return false;
+  return /(可以|能不能|可不可以|是否|怎麼|如何|期限|規則|條件|流程).*(退貨|退款|換貨|退換貨)|(退貨|退款|換貨|退換貨).*(可以嗎|能嗎|期限|規則|條件|流程)/.test(text);
 }
 
 function normalizeIdentifier(value) {

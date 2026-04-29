@@ -112,6 +112,126 @@ test("chat workflow treats cheaper follow-up as a product refinement", async () 
   assert.ok(result.recommendedProducts[0].price < 890);
 });
 
+test("semantic guardrails keep return policy questions as FAQ", async () => {
+  const result = await handleChat({
+    message: "請問商品可以退貨嗎？",
+    sessionId: "semantic-return-policy"
+  });
+
+  assert.equal(result.classification.intent, "faq");
+  assert.equal(result.missingReturnFields.length, 0);
+  assert.ok(result.matchedFaq);
+});
+
+test("semantic guardrails route damaged product issues to return handling", async () => {
+  const result = await handleChat({
+    message: "收到壞掉的商品怎麼辦",
+    sessionId: "semantic-damaged-product"
+  });
+
+  assert.equal(result.classification.intent, "return_request");
+  assert.deepEqual(result.missingReturnFields, ["delivery_no", "customer_name", "phone"]);
+  assert.equal(result.recommendedProducts.length, 0);
+});
+
+test("semantic guardrails do not treat generic客服 wording as human handoff", async () => {
+  const result = await handleChat({
+    message: "客服可以幫我推薦商品嗎",
+    sessionId: "semantic-cs-product"
+  });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.deepEqual(result.missingProductFields, ["budget", "use_case"]);
+});
+
+test("semantic guardrails parse Chinese-number budgets in product context", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找送禮用的商品" },
+      { role: "ai", content: "請問您方便補充預算嗎？" }
+    ]
+  });
+  const result = await handleChat({
+    message: "預算大概一千",
+    sessionId: "semantic-chinese-budget"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "budget_refinement");
+  assert.equal(result.classification.budget, 1000);
+  assert.ok(result.recommendedProducts.length > 0);
+});
+
+test("semantic guardrails route colloquial delivery delay to order status", async () => {
+  const result = await handleChat({
+    message: "怎麼還沒到",
+    sessionId: "semantic-delivery-delay"
+  });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.deepEqual(result.missingOrderFields, ["order_identifier"]);
+  assert.match(result.reply, /訂單編號或物流單號/);
+});
+
+test("semantic guardrails use bare order number after order-status prompt", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想查貨態" },
+      { role: "ai", content: "可以，我幫您查貨態。\n請問您方便提供訂單編號或物流單號嗎？" }
+    ]
+  });
+  const result = await handleChat({
+    message: "RAC1001",
+    sessionId: "semantic-bare-order-id"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.equal(result.orderStatus.found, true);
+  assert.equal(result.orderStatus.order_no, "RAC1001");
+});
+
+test("semantic guardrails support direct product-code selection", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找 2000 元內的耳機" },
+      { role: "ai", content: "P002｜行動辦公耳機\n價格：NT$ 1680\n詳情連結：/products/P002" }
+    ]
+  });
+  const result = await handleChat({
+    message: "我要 P002",
+    sessionId: "semantic-product-code"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.recommendedProducts[0].code, "P002");
+});
+
+test("semantic guardrails keep alternative and cheaper follow-ups in product context", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我想找 2000 元內的耳機" },
+      { role: "ai", content: "P002｜行動辦公耳機\n價格：NT$ 1680\n詳情連結：/products/P002" }
+    ]
+  });
+
+  const alternative = await handleChat({
+    message: "不要這個，有其他嗎",
+    sessionId: "semantic-alt-followup"
+  }, { repo });
+  const cheaper = await handleChat({
+    message: "有沒有更便宜",
+    sessionId: "semantic-cheaper-followup"
+  }, { repo });
+
+  assert.equal(alternative.classification.intent, "product_recommendation");
+  assert.equal(alternative.classification.follow_up, "alternative");
+  assert.notEqual(alternative.recommendedProducts[0].code, "P002");
+  assert.equal(cheaper.classification.intent, "product_recommendation");
+  assert.equal(cheaper.classification.follow_up, "cheaper");
+  assert.ok(cheaper.recommendedProducts[0].price < 1680);
+});
+
 test("budget increases keep the previously suitable product in context", async () => {
   const repo = createContextRepo({
     recentMessages: [
@@ -700,6 +820,24 @@ function createContextRepo({ recentMessages = null, productOverrides = null } = 
         { role: "customer", content: "推薦商品" },
         { role: "ai", content: "請您再補充預算和用途或使用情境。" }
       ];
+    },
+    async findOrderStatus({ orderNo, trackingNo } = {}) {
+      if (orderNo === "RAC1001" || trackingNo === "RC123456789TW") {
+        return {
+          found: true,
+          order_no: "RAC1001",
+          tracking_no: "RC123456789TW",
+          status: "in_transit",
+          status_label: "配送中",
+          current_location: "台北轉運中心"
+        };
+      }
+
+      return {
+        found: false,
+        order_no: orderNo || "",
+        tracking_no: trackingNo || ""
+      };
     },
     async createTicket(ticket) {
       const record = { id: `ticket-${tickets.length + 1}`, ...ticket };

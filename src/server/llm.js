@@ -69,14 +69,14 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const text = String(message || "");
   const normalized = text.toLowerCase();
   const angry = /太差|客訴|投訴|不爽|生氣|爛|糟/.test(text);
-  const wantsHuman = /真人|人工|客服|專人|轉人工|找人/.test(text);
+  const wantsHuman = /真人|人工|專人|轉人工|找人|真人客服|人工客服|客服人員|找客服|聯絡客服/.test(text);
   const returnRequest = isReturnRequestMessage(text, conversationHistory);
-  const orderStatus = /查貨|貨態|物流|配送進度|包裹|訂單|出貨|到貨了嗎|到貨沒|物流單號|訂單編號/.test(text);
+  const orderStatus = /查貨|貨態|物流|配送進度|包裹|訂單|出貨|到貨了嗎|到貨沒|怎麼還沒到|還沒到|物流到哪|包裹在哪|物流單號|訂單編號/.test(text);
   const faq = /退貨|退款|付款|配送|運送|保固|發票|換貨/.test(text);
-  const product = /推薦|商品|預算|新手|送禮|禮物|耳機|保養|清潔|杯|入門|3c|家用/.test(normalized);
+  const product = /推薦|商品|產品|預算|新手|送禮|禮物|耳機|保養|清潔|杯|入門|3c|家用|\bP\d{3,}\b/i.test(normalized);
   const priorProductContext = hasRecentProductContext(conversationHistory);
-  const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|其他|別的|還有嗎|還有其他|換一個|不同|更便宜|便宜一點|預算|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯/.test(text);
-  const budgetMatch = text.replace(/[,，]/g, "").match(/(\d+)\s*(元|塊|以內|以下)?/);
+  const looksLikeProductFollowup = /(\d+\s*(元|塊|以內|以下)?)|[一二兩三四五六七八九十百千萬]+(?:元|塊|以內|以下)?|其他|別的|還有嗎|還有其他|換一個|不同|更便宜|便宜一點|預算|新手|送禮|禮物|自用|家用|入門|保養|清潔|耳機|杯|\bP\d{3,}\b/i.test(text);
+  const budgetValue = extractBudgetValue(text);
 
   if (isLikelyUnclearInput(text)) {
     return normalizeClassification({
@@ -153,26 +153,6 @@ function classifyWithHeuristics(message, conversationHistory = []) {
     }, message);
   }
 
-  if (product || (priorProductContext && looksLikeProductFollowup)) {
-    const useCase = inferUseCase(text, conversationHistory);
-    const missingFields = [];
-    const productFollowUp = inferProductFollowUp(text, priorProductContext);
-    if (!budgetMatch && !productFollowUp) missingFields.push("budget");
-    if (!useCase && !productFollowUp && !budgetMatch) missingFields.push("use_case");
-
-    return normalizeClassification({
-      intent: "product_recommendation",
-      confidence: priorProductContext && !product ? 0.76 : 0.84,
-      tone: "neutral",
-      budget: budgetMatch ? Number(budgetMatch[1]) : null,
-      category: inferCategory(text),
-      use_case: useCase,
-      follow_up: productFollowUp,
-      missing_fields: missingFields,
-      keywords: extractKeywords(text, ["新手", "送禮", "禮物", "自用", "家用", "入門", "保養", "清潔", "耳機", "杯", "3C"])
-    }, message);
-  }
-
   if (faq) {
     return normalizeClassification({
       intent: "faq",
@@ -180,6 +160,26 @@ function classifyWithHeuristics(message, conversationHistory = []) {
       tone: "neutral",
       summary: "客戶詢問 FAQ 類問題",
       keywords: extractKeywords(text, ["退貨", "退款", "付款", "配送", "運送", "保固", "發票", "換貨"])
+    }, message);
+  }
+
+  if (product || (priorProductContext && looksLikeProductFollowup)) {
+    const useCase = inferUseCase(text, conversationHistory);
+    const missingFields = [];
+    const productFollowUp = inferProductFollowUp(text, priorProductContext);
+    if (!budgetValue && !productFollowUp) missingFields.push("budget");
+    if (!useCase && !productFollowUp && !budgetValue) missingFields.push("use_case");
+
+    return normalizeClassification({
+      intent: "product_recommendation",
+      confidence: priorProductContext && !product ? 0.76 : 0.84,
+      tone: "neutral",
+      budget: budgetValue,
+      category: inferCategory(text),
+      use_case: useCase,
+      follow_up: productFollowUp,
+      missing_fields: missingFields,
+      keywords: extractKeywords(text, ["新手", "送禮", "禮物", "自用", "家用", "入門", "保養", "清潔", "耳機", "杯", "3C"])
     }, message);
   }
 
@@ -330,12 +330,80 @@ function inferProductFollowUp(text, priorProductContext) {
   if (!priorProductContext) return "";
   if (/更便宜|便宜一點|低一點|價格低|預算低/.test(text)) return "cheaper";
   if (/其他|別的|還有嗎|還有其他|換一個|換款|不同|另一個|另.*選項/.test(text)) return "alternative";
-  if (/\d+\s*(元|塊|以內|以下)?/.test(text)) return "budget_refinement";
+  if (extractBudgetValue(text)) return "budget_refinement";
   return "";
 }
 
 function extractKeywords(text, candidates) {
   return candidates.filter((keyword) => new RegExp(keyword, "i").test(text));
+}
+
+function extractBudgetValue(text) {
+  const normalized = String(text || "").replace(/[,，]/g, "");
+  const numericMatch = normalized.match(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?/);
+  if (numericMatch) {
+    const value = Number(numericMatch[1]);
+    const unit = numericMatch[2] || "";
+    return /k|K|千/.test(unit) && value < 100 ? value * 1000 : value;
+  }
+
+  const chineseMatch = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/);
+  if (!chineseMatch) return null;
+  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|元|塊/.test(normalized);
+  const hasLargeUnit = /百|千|萬/.test(chineseMatch[1]);
+  return hasBudgetContext || hasLargeUnit ? parseChineseNumber(chineseMatch[1]) : null;
+}
+
+function parseChineseNumber(input) {
+  const text = String(input || "");
+  const digits = {
+    零: 0,
+    一: 1,
+    二: 2,
+    兩: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  };
+  const colloquialThousands = text.match(/^([一二兩三四五六七八九])千([一二兩三四五六七八九])$/);
+  if (colloquialThousands) {
+    return digits[colloquialThousands[1]] * 1000 + digits[colloquialThousands[2]] * 100;
+  }
+
+  const colloquialHundreds = text.match(/^([一二兩三四五六七八九])百([一二兩三四五六七八九])$/);
+  if (colloquialHundreds) {
+    return digits[colloquialHundreds[1]] * 100 + digits[colloquialHundreds[2]] * 10;
+  }
+
+  const units = { 十: 10, 百: 100, 千: 1000, 萬: 10000 };
+  let total = 0;
+  let section = 0;
+  let number = 0;
+
+  for (const char of text) {
+    if (Object.prototype.hasOwnProperty.call(digits, char)) {
+      number = digits[char];
+      continue;
+    }
+
+    const unit = units[char];
+    if (!unit) return null;
+    if (unit === 10000) {
+      section = (section + number) * unit;
+      total += section;
+      section = 0;
+    } else {
+      section += (number || 1) * unit;
+    }
+    number = 0;
+  }
+
+  const value = total + section + number;
+  return value || null;
 }
 
 function clamp(value, min, max) {

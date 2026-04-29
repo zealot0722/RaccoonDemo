@@ -144,8 +144,17 @@ export function normalizeBudget(value) {
   if (typeof value !== "string") return null;
 
   const normalized = value.replace(/[,，]/g, "");
-  const match = normalized.match(/\d+/);
-  return match ? Number(match[0]) : null;
+  const numericMatch = normalized.match(/(\d+)\s*(k|K|千)?/);
+  if (numericMatch) {
+    const number = Number(numericMatch[1]);
+    return /k|K|千/.test(numericMatch[2] || "") && number < 100 ? number * 1000 : number;
+  }
+
+  const chineseMatch = normalized.match(/[一二兩三四五六七八九十百千萬]+/);
+  if (!chineseMatch) return null;
+  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|元|塊/.test(normalized);
+  const hasLargeUnit = /百|千|萬/.test(chineseMatch[0]);
+  return hasBudgetContext || hasLargeUnit ? parseChineseNumber(chineseMatch[0]) : null;
 }
 
 function scoreProduct(product, { budget, category, useCase, keywords }) {
@@ -252,13 +261,29 @@ function extractProductCodes(text) {
 
 function extractBudget(text) {
   const normalized = String(text || "").replace(/[,，]/g, "");
-  const match = normalized.match(/(\d+)\s*(元|塊|以內|以下|左右)?/);
-  return match ? Number(match[1]) : null;
+  const numericMatch = normalized.match(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?/);
+  if (numericMatch) {
+    const number = Number(numericMatch[1]);
+    const unit = numericMatch[2] || "";
+    return /k|K|千/.test(unit) && number < 100 ? number * 1000 : number;
+  }
+
+  const chineseMatch = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/);
+  if (!chineseMatch) return null;
+  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|元|塊/.test(normalized);
+  const hasLargeUnit = /百|千|萬/.test(chineseMatch[1]);
+  return hasBudgetContext || hasLargeUnit ? parseChineseNumber(chineseMatch[1]) : null;
 }
 
 function extractLastBudget(text) {
-  const matches = [...String(text || "").replace(/[,，]/g, "").matchAll(/(\d+)\s*(元|塊|以內|以下|左右)?/g)];
-  return matches.length ? Number(matches.at(-1)[1]) : null;
+  const matches = [...String(text || "").replace(/[,，]/g, "").matchAll(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?|([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/g)];
+  if (!matches.length) return null;
+  const last = matches.at(-1);
+  if (last[1]) {
+    const number = Number(last[1]);
+    return /k|K|千/.test(last[2] || "") && number < 100 ? number * 1000 : number;
+  }
+  return parseChineseNumber(last[3]);
 }
 
 function extractLastPrice(text) {
@@ -284,7 +309,8 @@ function inferUseCaseFromText(text) {
 function buildContextualKeywords(keywords = [], message = "") {
   const direct = ["新手", "入門", "送禮", "禮物", "自用", "家用", "居家", "保養", "清潔", "耳機", "杯", "通勤", "辦公", "會議", "3C"]
     .filter((keyword) => new RegExp(keyword, "i").test(message));
-  return [...new Set([...(Array.isArray(keywords) ? keywords : []), ...direct])];
+  const productCodes = String(message || "").match(/\bP\d{3,}\b/gi) || [];
+  return [...new Set([...(Array.isArray(keywords) ? keywords : []), ...direct, ...productCodes.map((code) => code.toUpperCase())])];
 }
 
 function isProtectedIntent(intent) {
@@ -324,6 +350,58 @@ function expandKeyword(value) {
   if (/杯|馬克杯/.test(value)) expanded.push("杯", "馬克杯");
 
   return expanded.map(normalizeText).filter(Boolean);
+}
+
+function parseChineseNumber(input) {
+  const text = String(input || "");
+  const digits = {
+    零: 0,
+    一: 1,
+    二: 2,
+    兩: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  };
+  const colloquialThousands = text.match(/^([一二兩三四五六七八九])千([一二兩三四五六七八九])$/);
+  if (colloquialThousands) {
+    return digits[colloquialThousands[1]] * 1000 + digits[colloquialThousands[2]] * 100;
+  }
+
+  const colloquialHundreds = text.match(/^([一二兩三四五六七八九])百([一二兩三四五六七八九])$/);
+  if (colloquialHundreds) {
+    return digits[colloquialHundreds[1]] * 100 + digits[colloquialHundreds[2]] * 10;
+  }
+
+  const units = { 十: 10, 百: 100, 千: 1000, 萬: 10000 };
+  let total = 0;
+  let section = 0;
+  let number = 0;
+
+  for (const char of text) {
+    if (Object.prototype.hasOwnProperty.call(digits, char)) {
+      number = digits[char];
+      continue;
+    }
+
+    const unit = units[char];
+    if (!unit) return null;
+    if (unit === 10000) {
+      section = (section + number) * unit;
+      total += section;
+      section = 0;
+    } else {
+      section += (number || 1) * unit;
+    }
+    number = 0;
+  }
+
+  const value = total + section + number;
+  return value || null;
 }
 
 function formatPrice(value) {

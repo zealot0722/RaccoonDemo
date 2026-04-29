@@ -24,13 +24,21 @@ conversation_end 用於使用者表示本次對話已結束，例如「謝謝，
 unclear 用於無法辨識的亂碼、無意義數字、無意義英文或符號，例如「123123123」、「asdfasdf」、「????」。
 chitchat 用於招呼、寒暄或沒有客服需求的閒聊，例如「你好」、「哈囉」、「在嗎」。
 order_status 用於使用者查詢訂單、物流、出貨、配送進度或貨態。
+「怎麼還沒到」、「物流到哪了」、「包裹在哪」也屬於 order_status，若缺少編號請追問。
+若上一輪 AI 正在追問訂單編號或物流單號，使用者只回「RAC1001」或「RC123456789TW」這類編號時，仍要沿用 order_status。
 若可辨識訂單編號或物流單號，請填入 order_no 或 tracking_no；若沒有可用編號，兩者留空，missing_fields 填入 ["order_identifier"]。
 RAC1001、ORD1001、RC123456789TW 這類字串在查貨態語境中是訂單或物流編號，不是商品代號，也不要分類為 FAQ。
 return_request 用於使用者要退貨、退款、換貨或退換貨。
+「可以退貨嗎」、「退貨期限多久」、「退貨規則是什麼」這類詢問政策的句子屬於 faq，不是 return_request。
+「我要退貨」、「收到壞掉的商品」、「商品破損」、「商品有瑕疵」這類要處理個案的句子屬於 return_request。
 退貨申請若缺少送貨貨號、姓名或電話號碼，missing_fields 可填入 ["delivery_no","customer_name","phone"]。
 商品照片可以作為附件參考，但不是必填資料。
 若使用者是在上一輪退貨追問後補資料，請沿用 return_request，不要分類成商品推薦或一般 FAQ。
 若近期 AI 已推薦商品，使用者回「有其他的嗎」、「換一個」、「更便宜一點」或補充預算/用途時，請沿用 product_recommendation。
+單純出現「客服」兩字不代表要轉人工；只有明確要求「真人」、「人工」、「專人」、「轉人工」、「找客服人員」才分類為 human_handoff。
+「客服可以幫我推薦商品嗎」應分類為 product_recommendation。
+商品推薦可解析口語預算，例如「一千」、「兩千以下」、「1k」、「2k」、「大概五百」。
+若使用者說「我要 P002」、「剛剛那個多少錢」、「第二個有貨嗎」，且近期 AI 有推薦商品，請沿用 product_recommendation。
 商品推薦追問可用 follow_up 表示 alternative、budget_refinement、cheaper、need_refinement 或空字串。
 
 輸出 schema：
