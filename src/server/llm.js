@@ -1,4 +1,5 @@
 import { getConfig, hasGroqConfig } from "./config.js";
+import { extractOrderIdentifiersFromText } from "./order-status.js";
 import { buildClassificationPrompt, buildReplyPrompt } from "./prompts.js";
 
 export async function classifyMessage(message, options = {}) {
@@ -67,6 +68,7 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const normalized = text.toLowerCase();
   const angry = /太差|客訴|投訴|不爽|生氣|爛|糟/.test(text);
   const wantsHuman = /真人|人工|客服|專人|轉人工|找人/.test(text);
+  const orderStatus = /查貨|貨態|物流|配送進度|包裹|訂單|出貨|到貨了嗎|到貨沒|物流單號|訂單編號/.test(text);
   const faq = /退貨|退款|付款|配送|運送|保固|發票|換貨/.test(text);
   const product = /推薦|商品|預算|新手|送禮|禮物|耳機|保養|清潔|杯|入門|3c|家用/.test(normalized);
   const priorProductContext = hasRecentProductContext(conversationHistory);
@@ -92,6 +94,23 @@ function classifyWithHeuristics(message, conversationHistory = []) {
       need_human: true,
       summary: "客戶提出客訴或負面服務體驗",
       keywords: ["客訴"]
+    }, message);
+  }
+
+  if (orderStatus) {
+    const identifiers = extractOrderIdentifiersFromText(text);
+    const missingFields = identifiers.orderNo || identifiers.trackingNo ? [] : ["order_identifier"];
+
+    return normalizeClassification({
+      intent: "order_status",
+      confidence: 0.84,
+      tone: "neutral",
+      need_human: false,
+      summary: "客戶詢問訂單或物流貨態",
+      order_no: identifiers.orderNo,
+      tracking_no: identifiers.trackingNo,
+      missing_fields: missingFields,
+      keywords: extractKeywords(text, ["查貨", "貨態", "物流", "配送進度", "包裹", "訂單", "出貨", "到貨", "物流單號", "訂單編號"])
     }, message);
   }
 
@@ -176,6 +195,8 @@ function normalizeClassification(raw, message) {
     budget: raw?.budget ?? null,
     category: raw?.category || "",
     use_case: raw?.use_case || "",
+    order_no: raw?.order_no || raw?.orderNo || "",
+    tracking_no: raw?.tracking_no || raw?.trackingNo || "",
     missing_fields: Array.isArray(raw?.missing_fields) ? raw.missing_fields : [],
     keywords: Array.isArray(raw?.keywords) ? raw.keywords : []
   };

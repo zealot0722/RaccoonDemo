@@ -31,6 +31,51 @@ on conflict (code) do update set
   stock_status = excluded.stock_status,
   is_active = true;
 
+insert into order_statuses (
+  order_no, tracking_no, customer_id, customer_phone_last3, status, status_label,
+  current_location, estimated_delivery, last_event_at, items, note, is_mock
+) values
+(
+  'RAC1001',
+  'RC123456789TW',
+  'web-demo',
+  '123',
+  'in_transit',
+  '配送中',
+  '桃園轉運中心',
+  '2026-05-02T10:00:00+08:00',
+  '2026-04-29T09:30:00+08:00',
+  '[{"code":"P001","name":"入門保養組","qty":1}]'::jsonb,
+  '包裹已完成分揀，等待下一段配送。',
+  true
+),
+(
+  'RAC1002',
+  'RC987654321TW',
+  'web-demo',
+  '456',
+  'delivered',
+  '已送達',
+  '台北信義營業所',
+  '2026-04-28T18:00:00+08:00',
+  '2026-04-28T15:10:00+08:00',
+  '[{"code":"P003","name":"高效清潔組","qty":1},{"code":"P004","name":"質感禮品杯","qty":1}]'::jsonb,
+  '包裹已由管理室代收，若未取得請聯繫客服協助確認。',
+  true
+)
+on conflict (order_no) do update set
+  tracking_no = excluded.tracking_no,
+  customer_id = excluded.customer_id,
+  customer_phone_last3 = excluded.customer_phone_last3,
+  status = excluded.status,
+  status_label = excluded.status_label,
+  current_location = excluded.current_location,
+  estimated_delivery = excluded.estimated_delivery,
+  last_event_at = excluded.last_event_at,
+  items = excluded.items,
+  note = excluded.note,
+  is_mock = excluded.is_mock;
+
 insert into tickets (
   id, ticket_no, customer_id, status, summary, intent, priority, handoff_reason
 ) values (

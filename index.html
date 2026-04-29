@@ -48,6 +48,7 @@
             <button data-prompt="請問商品可以退貨嗎？">退貨 FAQ</button>
             <button data-prompt="我想找 1000 元內的新手商品">新手推薦</button>
             <button data-prompt="推薦商品">條件不足</button>
+            <button data-prompt="我想查 RAC1001 的貨態">查貨態</button>
             <button data-prompt="我要找真人客服">轉真人</button>
             <button data-prompt="你們服務太差了，我要客訴">客訴</button>
           </div>
@@ -78,9 +79,10 @@
 
         <aside class="customer-guide" aria-label="客服招呼訊息">
           <div class="guide-card">
-            <h2>您好，歡迎使用 Raccoon 客服。</h2>
-            <p>請直接描述您的問題。</p>
+            <h2>您好，很高興為您服務。</h2>
+            <p>您可以直接描述遇到的問題，我會先幫您整理方向。</p>
             <p>如果您需要商品建議，請補充預算、用途或品類。</p>
+            <p>如果您想查貨態，請提供訂單編號或物流單號。</p>
             <p>如果您需要真人客服，請直接輸入「我要找真人客服」。</p>
           </div>
           <div class="guide-card compact">
@@ -90,6 +92,7 @@
               <span class="tag">付款</span>
               <span class="tag">配送</span>
               <span class="tag">保固</span>
+              <span class="tag">查貨態</span>
               <span class="tag">商品推薦</span>
               <span class="tag">轉人工</span>
             </div>
@@ -115,6 +118,8 @@
 
       <section class="product-view hidden" id="product-view"></section>
     </main>
+
+    <aside class="product-history-dock hidden" id="product-history-dock" aria-label="推薦商品歷史"></aside>
 
     <script src="/app.js" type="module"></script>
   </body>

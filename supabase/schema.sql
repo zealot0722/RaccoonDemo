@@ -28,6 +28,24 @@ create table if not exists products (
   created_at timestamptz not null default now()
 );
 
+create table if not exists order_statuses (
+  id uuid primary key default gen_random_uuid(),
+  order_no text not null unique,
+  tracking_no text unique,
+  customer_id text,
+  customer_phone_last3 text,
+  status text not null,
+  status_label text not null,
+  current_location text,
+  estimated_delivery timestamptz,
+  last_event_at timestamptz,
+  items jsonb not null default '[]'::jsonb,
+  note text,
+  is_mock boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists tickets (
   id uuid primary key default gen_random_uuid(),
   ticket_no text not null unique,
@@ -82,9 +100,13 @@ create index if not exists idx_ai_decisions_ticket_id on ai_decisions(ticket_id,
 create index if not exists idx_csat_feedback_ticket_id on csat_feedback(ticket_id, created_at desc);
 create index if not exists idx_products_code on products(code);
 create index if not exists idx_faq_articles_code on faq_articles(code);
+create index if not exists idx_order_statuses_order_no on order_statuses(order_no);
+create index if not exists idx_order_statuses_tracking_no on order_statuses(tracking_no);
+create index if not exists idx_order_statuses_status on order_statuses(status);
 
 alter table faq_articles enable row level security;
 alter table products enable row level security;
+alter table order_statuses enable row level security;
 alter table tickets enable row level security;
 alter table messages enable row level security;
 alter table ai_decisions enable row level security;
@@ -103,4 +125,9 @@ $$;
 drop trigger if exists tickets_set_updated_at on tickets;
 create trigger tickets_set_updated_at
 before update on tickets
+for each row execute function set_updated_at();
+
+drop trigger if exists order_statuses_set_updated_at on order_statuses;
+create trigger order_statuses_set_updated_at
+before update on order_statuses
 for each row execute function set_updated_at();

@@ -1,4 +1,4 @@
-import { demoFaqArticles, demoProducts } from "./demo-data.js";
+import { demoFaqArticles, demoOrderStatuses, demoProducts } from "./demo-data.js";
 import { getConfig, hasSupabaseConfig } from "./config.js";
 
 const memory = {
@@ -68,6 +68,9 @@ function createMemoryRepository() {
         .filter((message) => ticketIds.includes(message.ticket_id))
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
         .slice(-limit);
+    },
+    async findOrderStatus(identifiers) {
+      return findDemoOrderStatus(identifiers);
     },
     async createTicket(ticket) {
       const now = new Date().toISOString();
@@ -182,6 +185,24 @@ function createSupabaseRepository(config) {
     async listProducts() {
       return request("products?select=*&is_active=eq.true&order=code.asc");
     },
+    async findOrderStatus({ orderNo, trackingNo } = {}) {
+      const byOrderNo = orderNo
+        ? await requestOptional(`order_statuses?select=*&order_no=eq.${encodeURIComponent(orderNo)}&limit=1`)
+        : null;
+      const byTrackingNo = !byOrderNo?.[0] && trackingNo
+        ? await requestOptional(`order_statuses?select=*&tracking_no=eq.${encodeURIComponent(trackingNo)}&limit=1`)
+        : null;
+      const record = byOrderNo?.[0] || byTrackingNo?.[0];
+
+      if (record) {
+        return {
+          found: true,
+          ...record
+        };
+      }
+
+      return findDemoOrderStatus({ orderNo, trackingNo });
+    },
     async listRecentMessages(customerId, limit = 10) {
       const tickets = await request(
         `tickets?select=id&customer_id=eq.${encodeURIComponent(customerId)}&order=created_at.desc&limit=8`
@@ -286,4 +307,30 @@ function createSupabaseRepository(config) {
 export function generateTicketNo() {
   const suffix = Date.now().toString().slice(-6);
   return `T${suffix}`;
+}
+
+function findDemoOrderStatus({ orderNo, trackingNo } = {}) {
+  const normalizedOrderNo = normalizeIdentifier(orderNo);
+  const normalizedTrackingNo = normalizeIdentifier(trackingNo);
+  const record = demoOrderStatuses.find((item) => {
+    return normalizeIdentifier(item.order_no) === normalizedOrderNo ||
+      normalizeIdentifier(item.tracking_no) === normalizedTrackingNo;
+  });
+
+  if (!record) {
+    return {
+      found: false,
+      order_no: normalizedOrderNo,
+      tracking_no: normalizedTrackingNo
+    };
+  }
+
+  return {
+    found: true,
+    ...record
+  };
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
 }

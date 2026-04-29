@@ -57,9 +57,10 @@ const state = {
   messages: [
     {
       role: "ai",
-      content: "您好，歡迎使用 Raccoon 客服。\n請直接描述您的問題。"
+      content: "您好，歡迎使用 Raccoon 客服。\n很高興為您服務，您可以直接描述遇到的問題，或告訴我想找什麼樣的商品。"
     }
   ],
+  productHistory: [],
   lastResult: null,
   tickets: [],
   selectedTicketId: null,
@@ -85,6 +86,7 @@ const els = {
   ratingRow: document.querySelector("#rating-row"),
   feedbackComment: document.querySelector("#feedback-comment"),
   feedbackStatus: document.querySelector("#feedback-status"),
+  productHistoryDock: document.querySelector("#product-history-dock"),
   healthPill: document.querySelector("#health-pill"),
   modePill: document.querySelector("#mode-pill"),
   ticketList: document.querySelector("#ticket-list"),
@@ -96,6 +98,7 @@ init();
 function init() {
   renderMessages();
   renderFeedbackPanel();
+  renderProductHistory();
   bindEvents();
   checkHealth();
   route();
@@ -157,6 +160,7 @@ async function sendMessage(content) {
     if (!response.ok) throw new Error(data.message || "送出失敗");
 
     state.lastResult = data;
+    rememberRecommendedProducts(data.recommendedProducts || []);
     state.messages.push({
       role: data.decision?.decision === "needs_review" ? "system" : "ai",
       content: data.reply,
@@ -165,6 +169,7 @@ async function sendMessage(content) {
     });
     renderMessages();
     renderFeedbackPanel();
+    renderProductHistory();
   } catch (error) {
     if (error.message.includes("access code")) {
       showAccessGate("試用碼不正確，請重新輸入。");
@@ -208,6 +213,42 @@ function renderMessageProducts(products) {
             <a href="${escapeAttr(product.product_url || `/products/${product.code}`)}">查看商品詳情</a>
           </div>
         </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function rememberRecommendedProducts(products) {
+  if (!products.length) return;
+
+  const byCode = new Map(state.productHistory.map((product) => [product.code, product]));
+  for (const product of products) {
+    byCode.set(product.code, product);
+  }
+  state.productHistory = Array.from(byCode.values()).slice(-6);
+}
+
+function renderProductHistory() {
+  if (!els.productHistoryDock) return;
+  const isCustomerPage = window.location.pathname === "/";
+  if (!isCustomerPage || !state.productHistory.length) {
+    els.productHistoryDock.classList.add("hidden");
+    els.productHistoryDock.innerHTML = "";
+    return;
+  }
+
+  els.productHistoryDock.classList.remove("hidden");
+  els.productHistoryDock.innerHTML = `
+    <div class="history-title">剛剛推薦過</div>
+    <div class="history-list">
+      ${state.productHistory.map((product) => `
+        <a class="history-product" href="${escapeAttr(product.product_url || `/products/${product.code}`)}">
+          <img src="${escapeAttr(product.image_url)}" alt="${escapeAttr(product.name_zh)}">
+          <span>
+            <strong>${escapeHtml(product.name_zh)}</strong>
+            <em>${escapeHtml(product.code)}｜NT$ ${formatPrice(product.price)}</em>
+          </span>
+        </a>
       `).join("")}
     </div>
   `;
@@ -421,18 +462,21 @@ function route() {
 
   const productMatch = path.match(/^\/products\/([^/]+)$/);
   if (productMatch) {
+    renderProductHistory();
     renderProductDetail(productMatch[1]);
     els.productView.classList.remove("hidden");
     return;
   }
 
   if (path === "/admin") {
+    renderProductHistory();
     els.adminView.classList.remove("hidden");
     loadTickets();
     return;
   }
 
   els.chatView.classList.remove("hidden");
+  renderProductHistory();
 }
 
 function renderProductDetail(code) {

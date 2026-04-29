@@ -31,6 +31,7 @@ Expected:
 - 推薦 1-3 個商品
 - 至少推薦 `P001 入門保養組`
 - 商品資訊、圖片與商品詳情連結出現在聊天訊息內
+- 已推薦過的商品會出現在客戶頁右下角的歷史紀錄小區塊
 - 客戶頁右側不顯示 AI 判斷面板
 
 ## 條件不足
@@ -46,7 +47,52 @@ Expected:
 - `intent = product_recommendation`
 - 不直接推薦商品
 - 回覆追問預算、用途或品類
+- 若缺少用途，回覆可使用「請問您要用來做什麼呢？」這類柔和追問
 - 回覆稱呼使用「您」
+
+## 查貨態
+
+Input:
+
+```text
+我想查 RAC1001 的貨態
+```
+
+Expected:
+
+- `intent = order_status`
+- 命中 demo 貨態資料
+- 回覆包含 `RAC1001`、`RC123456789TW` 與 `配送中`
+- 後台可看到 AI decision 與查詢摘要
+
+## 查貨態條件不足
+
+Input:
+
+```text
+我想查貨態
+```
+
+Expected:
+
+- `intent = order_status`
+- 不建立查不到資料的假結果
+- 回覆追問訂單編號或物流單號
+
+## 查貨態查無資料
+
+Input:
+
+```text
+請幫我查 RAC9999 的貨態
+```
+
+Expected:
+
+- `intent = order_status`
+- `decision = needs_review`
+- 回覆包含緩和用語，例如「十分抱歉」
+- 後台工單摘要包含客戶訊息、查詢資料與轉人工原因
 
 ## 上下文追問
 
@@ -75,6 +121,7 @@ Expected:
 - `intent = human_handoff`
 - `decision = needs_review`
 - 建立待處理工單
+- 工單摘要整理客戶訊息、AI 判斷與轉人工原因，供客服接手
 - 後台顯示 handoff reason
 
 ## 客訴

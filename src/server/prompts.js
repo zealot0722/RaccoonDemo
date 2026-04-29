@@ -10,6 +10,7 @@ export function buildClassificationPrompt({ message, conversationHistory = [] })
 可用 intent：
 - faq
 - product_recommendation
+- order_status
 - complaint
 - human_handoff
 - conversation_end
@@ -18,6 +19,8 @@ export function buildClassificationPrompt({ message, conversationHistory = [] })
 
 conversation_end 用於使用者表示本次對話已結束，例如「謝謝，先這樣」、「目前沒有其他問題」。
 若句子同時包含新問題，例如「謝謝，那退貨怎麼辦？」，不要分類為 conversation_end。
+order_status 用於使用者查詢訂單、物流、出貨、配送進度或貨態。
+若可辨識訂單編號或物流單號，請填入 order_no 或 tracking_no；若沒有可用編號，兩者留空，missing_fields 填入 ["order_identifier"]。
 
 輸出 schema：
 {
@@ -29,6 +32,8 @@ conversation_end 用於使用者表示本次對話已結束，例如「謝謝，
   "budget": null,
   "category": "",
   "use_case": "",
+  "order_no": "",
+  "tracking_no": "",
   "missing_fields": [],
   "keywords": []
 }`

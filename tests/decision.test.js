@@ -71,3 +71,43 @@ test("allows product recommendations when products are available", () => {
   assert.equal(result.decision, "auto_reply");
   assert.deepEqual(result.riskFlags, []);
 });
+
+test("asks for order identifier before checking order status", () => {
+  const result = decideNextAction({
+    classification: {
+      intent: "order_status",
+      confidence: 0.84,
+      tone: "neutral",
+      need_human: false
+    },
+    matchedFaq: null,
+    recommendedProducts: [],
+    missingOrderFields: ["order_identifier"],
+    replyGenerationOk: true
+  });
+
+  assert.equal(result.decision, "auto_reply");
+  assert.match(result.reasons[0], /查貨態資料不足/);
+});
+
+test("routes missing order status records to needs_review", () => {
+  const result = decideNextAction({
+    classification: {
+      intent: "order_status",
+      confidence: 0.84,
+      tone: "neutral",
+      need_human: false
+    },
+    matchedFaq: null,
+    recommendedProducts: [],
+    orderStatus: {
+      found: false,
+      order_no: "RAC9999"
+    },
+    replyGenerationOk: true
+  });
+
+  assert.equal(result.decision, "needs_review");
+  assert.deepEqual(result.riskFlags, ["order_status_miss"]);
+  assert.match(result.handoffReason, /沒有查到這筆貨態/);
+});

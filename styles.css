@@ -311,6 +311,80 @@ a:hover {
   font-size: 15px;
 }
 
+.product-history-dock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 18;
+  width: min(320px, calc(100vw - 44px));
+  max-height: 42vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.history-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-product {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: #fbfcfd;
+}
+
+.history-product:hover {
+  text-decoration: none;
+  border-color: #a9d3cb;
+}
+
+.history-product img {
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #eef1f4;
+}
+
+.history-product strong,
+.history-product em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-product strong {
+  font-size: 13px;
+}
+
+.history-product em {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
 .message-product p {
   margin: 6px 0 8px;
   color: var(--muted);
@@ -645,6 +719,13 @@ a:hover {
 
   .customer-guide {
     order: -1;
+  }
+
+  .product-history-dock {
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 0 12px 14px;
   }
 }
 

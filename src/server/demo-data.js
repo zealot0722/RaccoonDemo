@@ -83,3 +83,51 @@ export const demoProducts = [
     stock_status: "少量庫存"
   }
 ];
+
+export const demoOrderStatuses = [
+  {
+    order_no: "RAC1001",
+    tracking_no: "RC123456789TW",
+    customer_id: "web-demo",
+    customer_phone_last3: "123",
+    status: "in_transit",
+    status_label: "配送中",
+    current_location: "桃園轉運中心",
+    estimated_delivery: "2026-05-02T10:00:00+08:00",
+    last_event_at: "2026-04-29T09:30:00+08:00",
+    items: [
+      {
+        code: "P001",
+        name: "入門保養組",
+        qty: 1
+      }
+    ],
+    note: "包裹已完成分揀，等待下一段配送。",
+    is_mock: true
+  },
+  {
+    order_no: "RAC1002",
+    tracking_no: "RC987654321TW",
+    customer_id: "web-demo",
+    customer_phone_last3: "456",
+    status: "delivered",
+    status_label: "已送達",
+    current_location: "台北信義營業所",
+    estimated_delivery: "2026-04-28T18:00:00+08:00",
+    last_event_at: "2026-04-28T15:10:00+08:00",
+    items: [
+      {
+        code: "P003",
+        name: "高效清潔組",
+        qty: 1
+      },
+      {
+        code: "P004",
+        name: "質感禮品杯",
+        qty: 1
+      }
+    ],
+    note: "包裹已由管理室代收，若未取得請聯繫客服協助確認。",
+    is_mock: true
+  }
+];

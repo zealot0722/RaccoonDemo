@@ -9,7 +9,7 @@ Browser
   -> Vercel static frontend
   -> /api/chat
   -> Groq intent classification with recent conversation context
-  -> Supabase faq_articles / products
+  -> Supabase faq_articles / products / order_statuses
   -> decision center
   -> customer-facing reply with product info inline
   -> Supabase tickets / messages / ai_decisions
@@ -22,9 +22,9 @@ Browser
 
 ```text
 api/                    Vercel Serverless Functions
-src/server/             Groq, Supabase, decision, FAQ, recommendation logic
-supabase/schema.sql     Database schema, including csat_feedback
-supabase/seed.sql       Demo FAQ and product data
+src/server/             Groq, Supabase, decision, FAQ, recommendation, order-status logic
+supabase/schema.sql     Database schema, including csat_feedback and order_statuses
+supabase/seed.sql       Demo FAQ, product, and mock order-status data
 docs/design.md          Prompt, criteria, architecture notes
 docs/test-cases.md      Demo test scripts
 index.html              Customer page and admin page shell
@@ -60,11 +60,12 @@ DEMO_FALLBACK=false
 
 ## 路由
 
-- `/`：客戶聊天頁。商品推薦會直接出現在聊天訊息內，評分只會在使用者表示沒有其他問題後顯示。
+- `/`：客戶聊天頁。商品推薦會直接出現在聊天訊息內，並累積在右下角推薦歷史；評分只會在使用者表示沒有其他問題後顯示。
 - `/products/P001`：商品詳情頁。
 - `/admin`：客服 mock console，顯示工單、對話、AI 判斷、推薦商品代號、CSAT 評分。
 
 評分流程採混合判斷：明確結束語由本地規則處理，模糊結束語交給 Groq 分類為 `conversation_end` 後才顯示評分。
+查貨態先使用 `order_statuses` 的虛擬資料，例如 `RAC1001` / `RC123456789TW`；日後可替換成真實物流或訂單 API。
 
 ## 本機驗證
 
@@ -79,4 +80,5 @@ DEMO_FALLBACK=false
 
 - 不串接真實 LINE、Email、付款或庫存 API。
 - 客服回覆只寫入 demo DB。
+- 查貨態目前使用 demo DB 或內建 fallback，不呼叫真實物流 API。
 - 評分會寫入 `csat_feedback`；若 production DB 尚未補上新表，API 會退回寫入 `messages` 的 system 訊息，避免前台功能中斷。

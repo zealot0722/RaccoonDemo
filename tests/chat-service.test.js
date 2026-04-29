@@ -28,7 +28,7 @@ test("chat workflow asks for missing product conditions without products", async
   assert.equal(result.classification.intent, "product_recommendation");
   assert.deepEqual(result.missingProductFields, ["budget", "use_case"]);
   assert.equal(result.recommendedProducts.length, 0);
-  assert.match(result.reply, /請您再補充預算和用途或使用情境/);
+  assert.match(result.reply, /請問您要用來做什麼/);
   assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
 });
 
@@ -53,7 +53,52 @@ test("chat workflow creates needs_review ticket for human handoff", async () => 
   assert.equal(result.classification.intent, "human_handoff");
   assert.equal(result.decision.decision, "needs_review");
   assert.equal(result.ticket.status, "needs_review");
+  assert.match(result.reply, /十分抱歉/);
+  assert.match(result.reply, /問題摘要/);
+  assert.match(result.ticket.summary, /客戶訊息/);
+  assert.match(result.ticket.summary, /轉人工原因/);
   assert.match(result.decision.handoffReason, /真人客服/);
+});
+
+test("chat workflow asks for order identifier before checking order status", async () => {
+  const result = await handleChat({
+    message: "我想查貨態",
+    sessionId: "test-session-order-missing"
+  });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.deepEqual(result.missingOrderFields, ["order_identifier"]);
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.match(result.reply, /訂單編號或物流單號/);
+  assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
+});
+
+test("chat workflow returns mock order status when order is found", async () => {
+  const result = await handleChat({
+    message: "請幫我查 RAC1001 的貨態",
+    sessionId: "test-session-order-found"
+  });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.equal(result.orderStatus.found, true);
+  assert.equal(result.orderStatus.order_no, "RAC1001");
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.match(result.reply, /配送中/);
+  assert.match(result.reply, /RC123456789TW/);
+});
+
+test("chat workflow creates needs_review ticket when order status is not found", async () => {
+  const result = await handleChat({
+    message: "請幫我查 RAC9999 的貨態",
+    sessionId: "test-session-order-miss"
+  });
+
+  assert.equal(result.classification.intent, "order_status");
+  assert.equal(result.orderStatus.found, false);
+  assert.equal(result.decision.decision, "needs_review");
+  assert.match(result.reply, /十分抱歉/);
+  assert.match(result.reply, /客服後台/);
+  assert.match(result.ticket.summary, /查詢資料：RAC9999/);
 });
 
 test("conversation end message opens feedback flow only after customer says no more", async () => {
@@ -64,7 +109,7 @@ test("conversation end message opens feedback flow only after customer says no m
 
   assert.equal(result.conversationEnded, true);
   assert.equal(result.classification.intent, "conversation_end");
-  assert.match(result.reply, /請為本次服務評分/);
+  assert.match(result.reply, /請為這次服務留下評分/);
   assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
 });
 
@@ -119,7 +164,7 @@ test("uses Groq classification for fuzzy conversation-end messages", async () =>
     assert.equal(requests[0].body.model, "test-classifier");
     assert.equal(result.conversationEnded, true);
     assert.equal(result.classification.intent, "conversation_end");
-    assert.match(result.reply, /請為本次服務評分/);
+    assert.match(result.reply, /請為這次服務留下評分/);
   } finally {
     globalThis.fetch = originalFetch;
   }
