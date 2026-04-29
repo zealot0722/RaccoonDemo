@@ -215,7 +215,7 @@ function renderMessageProducts(products) {
 
 function renderFeedbackPanel() {
   const ticketId = state.lastResult?.ticket?.id;
-  if (!ticketId || state.feedbackSubmittedFor.has(ticketId)) {
+  if (!ticketId || !state.lastResult?.conversationEnded || state.feedbackSubmittedFor.has(ticketId)) {
     els.feedbackPanel.classList.add("hidden");
     return;
   }

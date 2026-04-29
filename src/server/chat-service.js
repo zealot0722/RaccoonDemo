@@ -27,10 +27,24 @@ export async function handleChat({ message, sessionId }, options = {}) {
     repo.listRecentMessages ? repo.listRecentMessages(customerId, 10) : []
   ]);
 
-  const classification = await classifyMessage(cleanMessage, {
-    config: options.config,
-    conversationHistory
-  });
+  const conversationEnded = isConversationEndMessage(cleanMessage);
+  const classification = conversationEnded
+    ? {
+        intent: "conversation_end",
+        confidence: 0.98,
+        summary: "客戶表示沒有其他問題",
+        tone: "neutral",
+        need_human: false,
+        budget: null,
+        category: "",
+        use_case: "",
+        missing_fields: [],
+        keywords: ["conversation_end"]
+      }
+    : await classifyMessage(cleanMessage, {
+        config: options.config,
+        conversationHistory
+      });
   const missingProductFields = getMissingProductFields(classification);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
@@ -48,7 +62,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     replyGenerationOk: true
   });
 
-  const reply = formatAssistantReply(await buildReply({
+  const rawReply = await buildReply({
     message: cleanMessage,
     classification,
     matchedFaq,
@@ -56,7 +70,13 @@ export async function handleChat({ message, sessionId }, options = {}) {
     decision,
     missingProductFields,
     conversationHistory,
+    conversationEnded,
     config: options.config
+  });
+  const reply = formatAssistantReply(appendContinuationPrompt(rawReply, {
+    conversationEnded,
+    classification,
+    missingProductFields
   }));
 
   const ticket = await repo.createTicket({
@@ -108,6 +128,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     matchedFaq,
     recommendedProducts,
     missingProductFields,
+    conversationEnded,
     mode: repo.mode
   };
 }
@@ -120,8 +141,13 @@ async function buildReply({
   decision,
   missingProductFields,
   conversationHistory,
+  conversationEnded,
   config
 }) {
+  if (conversationEnded) {
+    return "謝謝您的使用。\n請為本次服務評分，您的回饋會協助我們調整後續回覆品質。";
+  }
+
   if (decision.decision === "needs_review") {
     return "已為您建立待處理工單，真人客服會接手確認。您也可以補充更多細節，讓客服更快處理。";
   }
@@ -150,4 +176,22 @@ async function buildReply({
     decision,
     conversationHistory
   }, { config });
+}
+
+export function isConversationEndMessage(message) {
+  return /^(沒有|沒有了|沒了|沒問題|不用了|不需要了|好了|可以了|先這樣|ok|OK|謝謝|感謝|謝謝您|謝謝你|沒其他了|沒事了)[。！!.\s]*$/i.test(
+    String(message || "").trim()
+  );
+}
+
+function appendContinuationPrompt(reply, {
+  conversationEnded,
+  classification,
+  missingProductFields
+}) {
+  if (conversationEnded) return reply;
+  if (classification.intent === "product_recommendation" && missingProductFields.length > 0) return reply;
+  if (/還有其他問題|還需要協助|其他問題需要協助/.test(reply)) return reply;
+
+  return `${reply}\n\n請問您還有其他問題需要協助嗎？`;
 }

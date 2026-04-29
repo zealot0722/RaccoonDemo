@@ -4,7 +4,7 @@
 
 此 demo 拆成兩個角色：
 
-- 客戶頁 `/`：只保留聊天、商品資訊、商品連結與結束評分。
+- 客戶頁 `/`：只保留聊天、商品資訊、商品連結與對話結束後評分。
 - 客服後台 `/admin`：顯示工單、對話紀錄、AI intent、confidence、decision、handoff reason、推薦商品代號與 CSAT。
 
 這樣避免客戶看到內部判斷面板，也避免客服頁出現對處理工單沒有幫助的右側商品展示。
@@ -27,7 +27,7 @@
 - `/api/chat`：格式化輸入、讀取近期對話、Groq 分類、查 FAQ/products、決策、寫入 tickets/messages/ai_decisions。
 - `/api/tickets`：客服後台讀取工單與對話。
 - `/api/tickets/[id]/reply`：mock 客服回覆。
-- `/api/feedback`：客戶結束後評分，寫入 `csat_feedback` 或回退寫入 `messages`。
+- `/api/feedback`：客戶明確表示沒有其他問題後才顯示評分，寫入 `csat_feedback` 或回退寫入 `messages`。
 
 ## Prompt 設計
 
@@ -62,6 +62,8 @@
 - 不說「請看右側」或「下方卡片」。
 - 條件不足時只追問必要條件。
 - 推薦商品時，訊息中直接列出商品代號、中文名稱、原文名稱、價格、庫存、適合情境、推薦理由與詳情連結。
+- 一般回答完成後詢問「請問您還有其他問題需要協助嗎？」。
+- 使用者回覆「沒有了」、「謝謝」、「不用了」等結束語後，才顯示 CSAT 評分。
 
 ## 決策 criteria
 

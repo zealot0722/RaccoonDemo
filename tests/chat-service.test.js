@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { handleChat } from "../src/server/chat-service.js";
+import { handleChat, isConversationEndMessage } from "../src/server/chat-service.js";
 
 test("chat workflow recommends product details inside the assistant reply", async () => {
   const result = await handleChat({
@@ -14,6 +14,8 @@ test("chat workflow recommends product details inside the assistant reply", asyn
   assert.ok(result.recommendedProducts.length >= 1);
   assert.equal(result.recommendedProducts[0].code, "P001");
   assert.match(result.reply, /詳情連結：\/products\/P001/);
+  assert.match(result.reply, /還有其他問題需要協助/);
+  assert.equal(result.conversationEnded, false);
   assert.equal(result.ticket.status, "auto_replied");
 });
 
@@ -27,6 +29,7 @@ test("chat workflow asks for missing product conditions without products", async
   assert.deepEqual(result.missingProductFields, ["budget", "use_case"]);
   assert.equal(result.recommendedProducts.length, 0);
   assert.match(result.reply, /請您再補充預算和用途或使用情境/);
+  assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
 });
 
 test("chat workflow uses recent context for follow-up product answers", async () => {
@@ -51,6 +54,24 @@ test("chat workflow creates needs_review ticket for human handoff", async () => 
   assert.equal(result.decision.decision, "needs_review");
   assert.equal(result.ticket.status, "needs_review");
   assert.match(result.decision.handoffReason, /真人客服/);
+});
+
+test("conversation end message opens feedback flow only after customer says no more", async () => {
+  const result = await handleChat({
+    message: "沒有了",
+    sessionId: "test-session-end"
+  });
+
+  assert.equal(result.conversationEnded, true);
+  assert.equal(result.classification.intent, "conversation_end");
+  assert.match(result.reply, /請為本次服務評分/);
+  assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
+});
+
+test("detects common no-more replies as conversation end", () => {
+  assert.equal(isConversationEndMessage("沒有了"), true);
+  assert.equal(isConversationEndMessage("謝謝您。"), true);
+  assert.equal(isConversationEndMessage("我還有問題"), false);
 });
 
 function createContextRepo() {

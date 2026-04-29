@@ -97,11 +97,16 @@ Expected:
 Steps:
 
 1. 完成任一輪 AI 回覆
-2. 在客戶頁點選 1-5 分
-3. 可選填文字回饋
+2. AI 詢問「請問您還有其他問題需要協助嗎？」
+3. 若仍有問題，繼續輸入問題，評分不顯示
+4. 輸入 `沒有了`
+5. 客戶頁顯示 1-5 分評分
+6. 可選填文字回饋
 
 Expected:
 
+- 一般回覆後不直接顯示評分
+- 使用者表示沒有其他問題後才顯示評分
 - `/api/feedback` 回傳 `{ "ok": true }`
 - Supabase 寫入 `csat_feedback`
 - 若 production DB 尚未新增 `csat_feedback`，回退寫入 `messages` 的 system 訊息
