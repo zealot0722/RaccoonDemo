@@ -223,9 +223,10 @@ function createSupabaseRepository(config) {
       return data[0];
     },
     async createMessage(message) {
+      const payload = prepareMessagePayload(message);
       const data = await request("messages?select=*", {
         method: "POST",
-        body: JSON.stringify(message)
+        body: JSON.stringify(payload)
       }).catch((error) => {
         if (!message.attachments?.length || !String(error.message || "").includes("attachments")) throw error;
         return request("messages?select=*", {
@@ -343,4 +344,13 @@ function findDemoOrderStatus({ orderNo, trackingNo } = {}) {
 
 function normalizeIdentifier(value) {
   return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function prepareMessagePayload(message) {
+  if (!message.attachments?.length) {
+    const { attachments, ...rest } = message;
+    return rest;
+  }
+
+  return message;
 }
