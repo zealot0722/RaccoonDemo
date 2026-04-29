@@ -218,6 +218,51 @@ test("keeps order-status workflow when Groq misclassifies a clear order lookup",
   }
 });
 
+test("asks for order identifier when Groq misclassifies a bare order-status request", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "out_of_scope",
+              confidence: 0.62,
+              summary: "模型誤判為範圍外問題",
+              tone: "neutral",
+              need_human: false,
+              missing_fields: [],
+              keywords: []
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "我想查貨態",
+      sessionId: "test-session-groq-bare-order-guardrail"
+    }, {
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(result.classification.intent, "order_status");
+    assert.deepEqual(result.missingOrderFields, ["order_identifier"]);
+    assert.match(result.reply, /訂單編號或物流單號/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createContextRepo() {
   const tickets = [];
   const messages = [];
