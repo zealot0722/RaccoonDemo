@@ -334,7 +334,7 @@ function buildChitchatReply(turnCount) {
   return "您好，請您重新敘述您的問題，或直接描述需要協助的事項。\n我可以協助退換貨、付款、配送、保固、查貨態或商品推薦。";
 }
 
-function applyWorkflowRouting(classification, message, conversationHistory = []) {
+export function applyWorkflowRouting(classification, message, conversationHistory = []) {
   const multiIntent = detectMultiIntent(message);
   if (multiIntent.length > 1) {
     return buildMultiIntentClassification(classification, message, conversationHistory, multiIntent);
@@ -362,6 +362,20 @@ function applyWorkflowRouting(classification, message, conversationHistory = [])
   }
 
   const identifiers = getOrderIdentifiers({}, message);
+  if (isDeliveryPolicyFaq(message, identifiers)) {
+    return {
+      ...classification,
+      intent: "faq",
+      need_human: false,
+      confidence: Math.max(Number(classification.confidence || 0), 0.82),
+      summary: classification.summary || "客戶詢問配送時間或運送政策",
+      order_no: "",
+      tracking_no: "",
+      missing_fields: [],
+      keywords: [...new Set([...(classification.keywords || []), "配送時間"])]
+    };
+  }
+
   if (!isOrderStatusRequest(message, identifiers, conversationHistory)) {
     return classification;
   }
@@ -387,6 +401,18 @@ function isOrderStatusRequest(message, identifiers = {}, conversationHistory = [
   }
 
   return /查貨|貨態|物流單號|訂單編號|配送進度|包裹|出貨|到貨了嗎|到貨沒|怎麼還沒到|還沒到|物流到哪|包裹在哪/.test(text);
+}
+
+function isDeliveryPolicyFaq(message, identifiers = {}) {
+  if (identifiers.orderNo || identifiers.trackingNo) return false;
+
+  const text = String(message || "");
+  if (/查貨|貨態|物流單號|訂單編號|配送進度|包裹|訂單|出貨|到貨了嗎|到貨沒|怎麼還沒到|還沒到|物流到哪|包裹在哪|送到了嗎/.test(text)) {
+    return false;
+  }
+
+  return /(配送|運送|到貨|收到)/.test(text) &&
+    /(通常|一般|大概|多久|幾天|時間)/.test(text);
 }
 
 function hasRecentOrderContext(conversationHistory = []) {

@@ -27,6 +27,17 @@ test("uses classification identifiers before parsing free text", () => {
   });
 });
 
+test("moves tracking-shaped classifier order_no into trackingNo", () => {
+  const identifiers = getOrderIdentifiers({
+    order_no: "RC987654321TW"
+  }, "RC987654321TW 送到了嗎");
+
+  assert.deepEqual(identifiers, {
+    orderNo: "",
+    trackingNo: "RC987654321TW"
+  });
+});
+
 test("requires an order number or tracking number for order status", () => {
   const missing = getMissingOrderFields({
     intent: "order_status"

@@ -5,10 +5,10 @@ export function getMissingOrderFields(classification, message = "") {
 }
 
 export function getOrderIdentifiers(classification = {}, message = "") {
-  const fromClassification = {
+  const fromClassification = normalizeOrderIdentifierFields({
     orderNo: normalizeIdentifier(classification.order_no || classification.orderNo),
     trackingNo: normalizeIdentifier(classification.tracking_no || classification.trackingNo)
-  };
+  });
   if (fromClassification.orderNo || fromClassification.trackingNo) return fromClassification;
 
   return extractOrderIdentifiersFromText(message);
@@ -19,10 +19,10 @@ export function extractOrderIdentifiersFromText(message = "") {
   const orderMatch = text.match(/\b(?:RAC|ORD|ORDER|O)[-_]?\d{4,12}\b/i);
   const trackingMatch = text.match(/\b(?:RC|TRK|TRACK|SHIP)[-_]?[A-Z0-9]{6,16}\b/i);
 
-  return {
+  return normalizeOrderIdentifierFields({
     orderNo: normalizeIdentifier(orderMatch?.[0]),
     trackingNo: normalizeIdentifier(trackingMatch?.[0])
-  };
+  });
 }
 
 export function buildOrderStatusReply(orderStatus) {
@@ -50,6 +50,34 @@ export function formatMissingOrderFields() {
 
 function normalizeIdentifier(value) {
   return String(value || "").trim().toUpperCase().replace(/\s+/g, "") || "";
+}
+
+function normalizeOrderIdentifierFields({ orderNo = "", trackingNo = "" } = {}) {
+  let normalizedOrderNo = normalizeIdentifier(orderNo);
+  let normalizedTrackingNo = normalizeIdentifier(trackingNo);
+
+  if (normalizedOrderNo && !normalizedTrackingNo && isTrackingIdentifier(normalizedOrderNo)) {
+    normalizedTrackingNo = normalizedOrderNo;
+    normalizedOrderNo = "";
+  }
+
+  if (normalizedTrackingNo && !normalizedOrderNo && isOrderIdentifier(normalizedTrackingNo)) {
+    normalizedOrderNo = normalizedTrackingNo;
+    normalizedTrackingNo = "";
+  }
+
+  return {
+    orderNo: normalizedOrderNo,
+    trackingNo: normalizedTrackingNo
+  };
+}
+
+function isOrderIdentifier(value = "") {
+  return /^(?:RAC|ORD|ORDER|O)[-_]?\d{4,12}$/i.test(value);
+}
+
+function isTrackingIdentifier(value = "") {
+  return /^(?:RC|TRK|TRACK|SHIP)[-_]?[A-Z0-9]{6,16}$/i.test(value);
 }
 
 function formatDate(value) {

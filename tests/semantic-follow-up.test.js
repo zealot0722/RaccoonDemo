@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { handleChat } from "../src/server/chat-service.js";
+import { applyWorkflowRouting, handleChat } from "../src/server/chat-service.js";
 
 const products = [
   {
@@ -124,6 +124,22 @@ test("semantic follow-up guardrails parse budget ranges by upper bound", async (
     assert.equal(result.classification.budget, 2000, message);
     assert.equal(result.recommendedProducts[0]?.code, "P002", message);
   }
+});
+
+test("semantic follow-up guardrails keep delivery timing questions as FAQ", () => {
+  const result = applyWorkflowRouting({
+    intent: "order_status",
+    confidence: 0.51,
+    tone: "neutral",
+    need_human: false,
+    summary: "客戶詢問配送",
+    missing_fields: ["order_identifier"]
+  }, "配送通常幾天會到", []);
+
+  assert.equal(result.intent, "faq");
+  assert.deepEqual(result.missing_fields, []);
+  assert.equal(result.order_no, "");
+  assert.equal(result.tracking_no, "");
 });
 
 test("semantic follow-up guardrails accumulate natural return details", async () => {
