@@ -17,18 +17,20 @@ import {
 import {
   buildReturnHandoffReply,
   buildReturnInformationRequestReply,
+  formatMissingReturnFields,
   getMissingReturnFields,
   isReturnRequestMessage,
   summarizeReturnInfo
 } from "./return-request.js";
 import { createRepository, generateTicketNo } from "./repository.js";
 
-export async function handleChat({ message, sessionId }, options = {}) {
+export async function handleChat({ message, sessionId, attachments = [] }, options = {}) {
   const repo = options.repo || createRepository(options.config);
   const cleanMessage = String(message || "").trim();
+  const cleanAttachments = normalizeAttachments(attachments);
   const customerId = sessionId || "web-demo";
 
-  if (!cleanMessage) {
+  if (!cleanMessage && cleanAttachments.length === 0) {
     const error = new Error("message is required");
     error.statusCode = 400;
     throw error;
@@ -40,6 +42,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     repo.listRecentMessages ? repo.listRecentMessages(customerId, 10) : []
   ]);
 
+  const messageForClassification = cleanMessage || "已上傳商品照片";
   const explicitConversationEnd = isConversationEndMessage(cleanMessage);
   const classificationResult = explicitConversationEnd
     ? {
@@ -54,16 +57,16 @@ export async function handleChat({ message, sessionId }, options = {}) {
         missing_fields: [],
         keywords: ["conversation_end"]
       }
-    : await classifyMessage(cleanMessage, {
+    : await classifyMessage(messageForClassification, {
         config: options.config,
         conversationHistory
       });
-  const classification = applyWorkflowRouting(classificationResult, cleanMessage, conversationHistory);
+  const classification = applyWorkflowRouting(classificationResult, messageForClassification, conversationHistory);
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
 
   const missingProductFields = getMissingProductFields(classification);
   const missingOrderFields = getMissingOrderFields(classification, cleanMessage);
-  const missingReturnFields = getMissingReturnFields(classification, cleanMessage);
+  const missingReturnFields = getMissingReturnFields(classification, messageForClassification);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
     : null;
@@ -95,6 +98,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     orderIdentifiers,
     orderStatus,
     missingReturnFields,
+    attachments: cleanAttachments,
     matchedFaq,
     recommendedProducts
   });
@@ -108,6 +112,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     missingProductFields,
     missingOrderFields,
     missingReturnFields,
+    attachments: cleanAttachments,
     orderStatus,
     conversationHistory,
     conversationEnded,
@@ -133,7 +138,8 @@ export async function handleChat({ message, sessionId }, options = {}) {
   const customerMessage = await repo.createMessage({
     ticket_id: ticket.id,
     role: "customer",
-    content: cleanMessage
+    content: cleanMessage || "已上傳商品照片",
+    attachments: cleanAttachments
   });
   const aiMessage = await repo.createMessage({
     ticket_id: ticket.id,
@@ -156,6 +162,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
       order_identifiers: orderIdentifiers,
       order_status: orderStatus,
       missing_return_fields: missingReturnFields,
+      attachments: cleanAttachments,
       support_summary: supportSummary,
       context_message_count: conversationHistory.length
     }
@@ -190,6 +197,7 @@ async function buildReply({
   missingProductFields,
   missingOrderFields,
   missingReturnFields,
+  attachments,
   orderStatus,
   conversationHistory,
   conversationEnded,
@@ -327,27 +335,62 @@ function buildSupportSummary({
   orderIdentifiers,
   orderStatus,
   missingReturnFields,
+  attachments,
   matchedFaq,
   recommendedProducts
 }) {
-  const parts = [
-    `客戶訊息：${message.slice(0, 80)}`,
-    `AI 判斷：${classification.intent || "-"}`,
-    `處理決策：${decision.decision || "-"}`,
-    matchedFaq ? `命中 FAQ：${matchedFaq.code}` : "",
-    recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "",
-    classification.intent === "order_status" && (orderIdentifiers.orderNo || orderIdentifiers.trackingNo)
-      ? `查詢資料：${orderIdentifiers.orderNo || orderIdentifiers.trackingNo}`
-      : "",
-    orderStatus?.found ? `貨態：${orderStatus.status_label || orderStatus.status}` : "",
-    classification.intent === "return_request" && summarizeReturnInfo(message)
-      ? `退貨資料：${summarizeReturnInfo(message)}`
-      : "",
-    classification.intent === "return_request" && missingReturnFields?.length
-      ? `缺少退貨資料：${missingReturnFields.join(", ")}`
-      : "",
-    decision.handoffReason ? `轉人工原因：${decision.handoffReason}` : ""
-  ].filter(Boolean);
+  const intent = classification.intent || "-";
 
-  return parts.join(" | ");
+  if (intent === "return_request") {
+    const returnInfo = summarizeReturnInfo(message, attachments);
+    const status = missingReturnFields?.length
+      ? `缺少：${formatMissingReturnFields(missingReturnFields)}`
+      : "必要資料齊全";
+    return [
+      "客服摘要：退貨申請",
+      `狀態：${status}`,
+      returnInfo ? `退貨資料：${returnInfo}` : "",
+      `處理：${decision.decision === "needs_review" ? "轉人工判斷" : "等待客戶補資料"}`
+    ].filter(Boolean).join("｜");
+  }
+
+  if (intent === "order_status") {
+    return [
+      "客服摘要：查貨態",
+      orderIdentifiers.orderNo || orderIdentifiers.trackingNo
+        ? `查詢編號：${orderIdentifiers.orderNo || orderIdentifiers.trackingNo}`
+        : "查詢編號：未提供",
+      orderStatus?.found ? `貨態：${orderStatus.status_label || orderStatus.status}` : "",
+      `處理：${decision.decision === "needs_review" ? "轉人工確認" : "自動回覆"}`
+    ].filter(Boolean).join("｜");
+  }
+
+  if (intent === "product_recommendation") {
+    return [
+      "客服摘要：商品推薦",
+      recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "推薦商品：尚未推薦",
+      `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`
+    ].join("｜");
+  }
+
+  return [
+    `客服摘要：${classification.summary || message.slice(0, 40) || intent}`,
+    matchedFaq ? `FAQ：${matchedFaq.code}` : "",
+    `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`,
+    decision.handoffReason ? `原因：${decision.handoffReason}` : ""
+  ].filter(Boolean).join("｜");
+}
+
+function normalizeAttachments(attachments = []) {
+  if (!Array.isArray(attachments)) return [];
+
+  return attachments
+    .filter((item) => item && /^image\//.test(String(item.type || "")))
+    .slice(0, 3)
+    .map((item) => ({
+      name: String(item.name || "photo").slice(0, 120),
+      type: String(item.type || "image/jpeg").slice(0, 80),
+      size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
+      dataUrl: String(item.dataUrl || item.data_url || "").slice(0, 2_000_000)
+    }));
 }

@@ -55,8 +55,8 @@ test("chat workflow creates needs_review ticket for human handoff", async () => 
   assert.equal(result.ticket.status, "needs_review");
   assert.match(result.reply, /十分抱歉/);
   assert.match(result.reply, /問題摘要/);
-  assert.match(result.ticket.summary, /客戶訊息/);
-  assert.match(result.ticket.summary, /轉人工原因/);
+  assert.match(result.ticket.summary, /客服摘要/);
+  assert.match(result.ticket.summary, /轉人工/);
   assert.match(result.decision.handoffReason, /真人客服/);
 });
 
@@ -67,16 +67,17 @@ test("chat workflow asks for required return information before handoff", async 
   });
 
   assert.equal(result.classification.intent, "return_request");
-  assert.deepEqual(result.missingReturnFields, ["delivery_no", "customer_name", "phone", "photos"]);
+  assert.deepEqual(result.missingReturnFields, ["delivery_no", "customer_name", "phone"]);
   assert.equal(result.decision.decision, "auto_reply");
-  assert.match(result.reply, /請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片/);
+  assert.match(result.reply, /請提供您的送貨貨號、姓名、電話號碼/);
+  assert.match(result.reply, /可以上傳商品照片/);
   assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
 });
 
-test("chat workflow routes return requests with enough details to human review", async () => {
+test("chat workflow routes return requests with required details to human review", async () => {
   const repo = createReturnContextRepo();
   const result = await handleChat({
-    message: "送貨貨號 RC123456789TW，名稱王小明，電話 0912345678，商品照片已提供",
+    message: "送貨貨號 RC123456789TW，姓名王小明，電話 0912345678",
     sessionId: "return-session"
   }, { repo });
 
@@ -86,7 +87,28 @@ test("chat workflow routes return requests with enough details to human review",
   assert.equal(result.ticket.status, "needs_review");
   assert.match(result.reply, /退貨資料整理到客服後台/);
   assert.match(result.ticket.summary, /退貨資料/);
+  assert.match(result.ticket.summary, /客服摘要/);
   assert.doesNotMatch(result.ticket.summary, /查詢資料/);
+});
+
+test("chat workflow records optional return photo attachments", async () => {
+  const repo = createReturnContextRepo();
+  const result = await handleChat({
+    message: "送貨貨號 RC123456789TW，姓名王小明，電話 0912345678",
+    sessionId: "return-attachment-session",
+    attachments: [
+      {
+        name: "return-photo.jpg",
+        type: "image/jpeg",
+        size: 1200,
+        dataUrl: "data:image/jpeg;base64,AAAA"
+      }
+    ]
+  }, { repo });
+
+  assert.equal(result.decision.decision, "needs_review");
+  assert.equal(result.ticket.messages[0].attachments.length, 1);
+  assert.match(result.ticket.summary, /附件：1 張照片/);
 });
 
 test("chat workflow asks for order identifier before checking order status", async () => {
@@ -127,7 +149,7 @@ test("chat workflow creates needs_review ticket when order status is not found",
   assert.equal(result.decision.decision, "needs_review");
   assert.match(result.reply, /十分抱歉/);
   assert.match(result.reply, /客服後台/);
-  assert.match(result.ticket.summary, /查詢資料：RAC9999/);
+  assert.match(result.ticket.summary, /查詢編號：RAC9999/);
 });
 
 test("conversation end message opens feedback flow only after customer says no more", async () => {

@@ -61,6 +61,7 @@ const state = {
     }
   ],
   productHistory: [],
+  pendingAttachments: [],
   lastResult: null,
   tickets: [],
   selectedTicketId: null,
@@ -82,6 +83,9 @@ const els = {
   form: document.querySelector("#chat-form"),
   input: document.querySelector("#message-input"),
   sendBtn: document.querySelector("#send-btn"),
+  attachBtn: document.querySelector("#attach-btn"),
+  photoInput: document.querySelector("#photo-input"),
+  attachmentPreview: document.querySelector("#attachment-preview"),
   feedbackPanel: document.querySelector("#feedback-panel"),
   ratingRow: document.querySelector("#rating-row"),
   feedbackComment: document.querySelector("#feedback-comment"),
@@ -108,9 +112,18 @@ function bindEvents() {
   els.form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const value = els.input.value.trim();
-    if (!value) return;
+    const attachments = state.pendingAttachments;
+    if (!value && !attachments.length) return;
     els.input.value = "";
-    await sendMessage(value);
+    state.pendingAttachments = [];
+    renderAttachmentPreview();
+    await sendMessage(value, attachments);
+  });
+
+  els.attachBtn.addEventListener("click", () => els.photoInput.click());
+  els.photoInput.addEventListener("change", async () => {
+    await addPhotoAttachments(Array.from(els.photoInput.files || []));
+    els.photoInput.value = "";
   });
 
   document.querySelectorAll("[data-prompt]").forEach((button) => {
@@ -139,8 +152,9 @@ function bindEvents() {
   window.addEventListener("popstate", route);
 }
 
-async function sendMessage(content) {
-  state.messages.push({ role: "customer", content });
+async function sendMessage(content, attachments = []) {
+  const outgoingContent = content || "已上傳商品照片";
+  state.messages.push({ role: "customer", content: outgoingContent, attachments });
   state.lastResult = null;
   renderMessages();
   renderFeedbackPanel();
@@ -153,7 +167,8 @@ async function sendMessage(content) {
       body: JSON.stringify({
         message: content,
         sessionId: state.sessionId,
-        accessCode: state.accessCode
+        accessCode: state.accessCode,
+        attachments
       })
     });
     const data = await response.json();
@@ -189,11 +204,71 @@ function renderMessages() {
     .map((message) => `
       <div class="message ${message.role}">
         <div class="message-content">${escapeHtml(message.content)}</div>
+        ${message.attachments?.length ? renderAttachments(message.attachments) : ""}
         ${message.products?.length ? renderMessageProducts(message.products) : ""}
       </div>
     `)
     .join("");
   els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function renderAttachments(attachments) {
+  return `
+    <div class="message-attachments">
+      ${attachments.map((item) => `
+        <figure class="message-attachment">
+          <img src="${escapeAttr(item.dataUrl || item.data_url || "")}" alt="${escapeAttr(item.name || "上傳照片")}">
+          <figcaption>${escapeHtml(item.name || "上傳照片")}</figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function addPhotoAttachments(files) {
+  const images = files.filter((file) => file.type.startsWith("image/")).slice(0, 3);
+  const next = [];
+  for (const file of images) {
+    if (file.size > 2_000_000) {
+      state.messages.push({
+        role: "system",
+        content: `${file.name} 超過 2MB，請選擇較小的圖片。`
+      });
+      continue;
+    }
+    next.push({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      dataUrl: await readFileAsDataUrl(file)
+    });
+  }
+  state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 3);
+  renderAttachmentPreview();
+  renderMessages();
+}
+
+function renderAttachmentPreview() {
+  if (!state.pendingAttachments.length) {
+    els.attachmentPreview.classList.add("hidden");
+    els.attachmentPreview.innerHTML = "";
+    return;
+  }
+
+  els.attachmentPreview.classList.remove("hidden");
+  els.attachmentPreview.innerHTML = state.pendingAttachments.map((item, index) => `
+    <button type="button" class="attachment-chip" data-remove-attachment="${index}">
+      <img src="${escapeAttr(item.dataUrl)}" alt="${escapeAttr(item.name)}">
+      <span>${escapeHtml(item.name)}</span>
+    </button>
+  `).join("");
+
+  els.attachmentPreview.querySelectorAll("[data-remove-attachment]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.pendingAttachments.splice(Number(button.dataset.removeAttachment), 1);
+      renderAttachmentPreview();
+    });
+  });
 }
 
 function renderMessageProducts(products) {
@@ -372,6 +447,7 @@ function renderTicketDetail(ticket) {
   }
 
   const decision = ticket.ai_decision || {};
+  const decisionAttachments = getDecisionAttachments(ticket, decision);
   els.ticketDetail.innerHTML = `
     <div class="detail-head">
       <div>
@@ -389,11 +465,18 @@ function renderTicketDetail(ticket) {
       <div><dt>CSAT</dt><dd>${ticket.feedback ? `${escapeHtml(ticket.feedback.score)}/5` : "-"}</dd></div>
     </dl>
     ${ticket.feedback?.comment ? `<div class="feedback-note">客戶回饋：${escapeHtml(ticket.feedback.comment)}</div>` : ""}
+    ${decisionAttachments.length ? `
+      <div class="timeline-item">
+        <div class="timeline-role">退貨附件</div>
+        ${renderAttachments(decisionAttachments)}
+      </div>
+    ` : ""}
     <div class="timeline">
       ${(ticket.messages || []).map((message) => `
         <div class="timeline-item">
           <div class="timeline-role">${escapeHtml(message.role)}</div>
           <div>${escapeHtml(message.content)}</div>
+          ${message.attachments?.length ? renderAttachments(message.attachments) : ""}
         </div>
       `).join("")}
     </div>
@@ -409,6 +492,13 @@ function renderTicketDetail(ticket) {
     if (!content) return;
     await postAgentReply(ticket.id, content);
   });
+}
+
+function getDecisionAttachments(ticket, decision) {
+  const hasMessageAttachments = (ticket.messages || []).some((message) => message.attachments?.length);
+  if (hasMessageAttachments) return [];
+  const attachments = decision.raw_classification?.attachments;
+  return Array.isArray(attachments) ? attachments : [];
 }
 
 async function postAgentReply(ticketId, content) {
@@ -552,4 +642,13 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(file);
+  });
 }

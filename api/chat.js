@@ -10,7 +10,8 @@ export default async function handler(req, res) {
     requireAccess(getAccessCodeFromRequest(req, body));
     const result = await handleChat({
       message: body.message,
-      sessionId: body.sessionId
+      sessionId: body.sessionId,
+      attachments: body.attachments
     });
 
     return sendJson(res, 200, result);

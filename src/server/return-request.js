@@ -1,8 +1,7 @@
 const FIELD_LABELS = {
   delivery_no: "送貨貨號",
-  customer_name: "名稱",
-  phone: "電話號碼",
-  photos: "商品照片"
+  customer_name: "姓名",
+  phone: "電話號碼"
 };
 
 export function isReturnRequestMessage(message, conversationHistory = []) {
@@ -20,23 +19,28 @@ export function getMissingReturnFields(classification, message = "") {
 }
 
 export function buildReturnInformationRequestReply() {
-  return "請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片。\n收到資料後，我會把退貨申請轉交客服人員確認。";
+  return "請提供您的送貨貨號、姓名、電話號碼。\n若方便，您也可以上傳商品照片供客服參考。\n收到必要資料後，我會把退貨申請轉交客服人員確認。";
 }
 
 export function buildReturnHandoffReply() {
   return "十分抱歉造成您的不便。\n我已經把您提供的退貨資料整理到客服後台，客服人員會協助確認後續退貨處理。";
 }
 
-export function summarizeReturnInfo(message = "") {
+export function summarizeReturnInfo(message = "", attachments = []) {
   const info = extractReturnInfo(message);
+  const photoCount = countPhotoAttachments(attachments);
   const parts = [
     info.delivery_no ? `送貨貨號：${info.delivery_no}` : "",
-    info.customer_name ? `名稱：${info.customer_name}` : "",
+    info.customer_name ? `姓名：${info.customer_name}` : "",
     info.phone ? `電話：${info.phone}` : "",
-    info.photos ? "商品照片：已提供" : ""
+    photoCount ? `附件：${photoCount} 張照片` : info.photos ? "附件：文字提到已提供照片" : ""
   ].filter(Boolean);
 
   return parts.join("，");
+}
+
+export function formatMissingReturnFields(fields = []) {
+  return fields.map((field) => FIELD_LABELS[field] || field).join("、");
 }
 
 function extractReturnInfo(message = "") {
@@ -74,4 +78,8 @@ function normalizeIdentifier(value) {
 
 function normalizePhone(value) {
   return String(value || "").trim().replace(/[\s-]/g, "");
+}
+
+function countPhotoAttachments(attachments = []) {
+  return attachments.filter((item) => /^image\//.test(String(item.type || ""))).length;
 }

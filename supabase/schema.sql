@@ -64,6 +64,7 @@ create table if not exists messages (
   ticket_id uuid not null references tickets(id) on delete cascade,
   role text not null check (role in ('customer', 'ai', 'agent', 'system')),
   content text not null,
+  attachments jsonb not null default '[]'::jsonb,
   staff_name text,
   created_at timestamptz not null default now()
 );

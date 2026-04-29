@@ -72,6 +72,9 @@
           </section>
 
           <form class="composer" id="chat-form">
+            <div class="attachment-preview hidden" id="attachment-preview"></div>
+            <input class="hidden" id="photo-input" type="file" accept="image/*" multiple>
+            <button type="button" class="attach-btn" id="attach-btn">上傳照片</button>
             <input id="message-input" name="message" autocomplete="off" placeholder="例如：我想找 1000 元內的新手商品">
             <button type="submit" id="send-btn">送出</button>
           </form>

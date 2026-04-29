@@ -226,6 +226,16 @@ function createSupabaseRepository(config) {
       const data = await request("messages?select=*", {
         method: "POST",
         body: JSON.stringify(message)
+      }).catch((error) => {
+        if (!message.attachments?.length || !String(error.message || "").includes("attachments")) throw error;
+        return request("messages?select=*", {
+          method: "POST",
+          body: JSON.stringify({
+            ...message,
+            content: `${message.content}\n附件：${message.attachments.map((item) => item.name).join("、")}`,
+            attachments: undefined
+          })
+        });
       });
       return data[0];
     },
