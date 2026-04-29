@@ -339,7 +339,7 @@ function extractKeywords(text, candidates) {
 }
 
 function extractBudgetValue(text) {
-  const normalized = String(text || "").replace(/[,，]/g, "");
+  const normalized = String(text || "").replace(/\bP\d{3,}\b/gi, "").replace(/[,，]/g, "");
   const numericMatch = normalized.match(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?/);
   if (numericMatch) {
     const value = Number(numericMatch[1]);

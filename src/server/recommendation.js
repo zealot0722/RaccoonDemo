@@ -143,7 +143,7 @@ export function normalizeBudget(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
 
-  const normalized = value.replace(/[,，]/g, "");
+  const normalized = value.replace(/\bP\d{3,}\b/gi, "").replace(/[,，]/g, "");
   const numericMatch = normalized.match(/(\d+)\s*(k|K|千)?/);
   if (numericMatch) {
     const number = Number(numericMatch[1]);
@@ -260,7 +260,7 @@ function extractProductCodes(text) {
 }
 
 function extractBudget(text) {
-  const normalized = String(text || "").replace(/[,，]/g, "");
+  const normalized = String(text || "").replace(/\bP\d{3,}\b/gi, "").replace(/[,，]/g, "");
   const numericMatch = normalized.match(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?/);
   if (numericMatch) {
     const number = Number(numericMatch[1]);
@@ -276,7 +276,7 @@ function extractBudget(text) {
 }
 
 function extractLastBudget(text) {
-  const matches = [...String(text || "").replace(/[,，]/g, "").matchAll(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?|([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/g)];
+  const matches = [...String(text || "").replace(/\bP\d{3,}\b/gi, "").replace(/[,，]/g, "").matchAll(/(\d+)\s*(k|K|千|元|塊|以內|以下|左右)?|([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/g)];
   if (!matches.length) return null;
   const last = matches.at(-1);
   if (last[1]) {

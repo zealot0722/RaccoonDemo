@@ -77,6 +77,7 @@ test("parses conversational Chinese budget amounts", () => {
   assert.equal(normalizeBudget("兩千五以下"), 2500);
   assert.equal(normalizeBudget("大概三百五"), 350);
   assert.equal(normalizeBudget("2k"), 2000);
+  assert.equal(normalizeBudget("P002"), null);
 });
 
 test("recommends Chinese products under budget", () => {

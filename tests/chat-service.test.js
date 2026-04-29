@@ -204,6 +204,8 @@ test("semantic guardrails support direct product-code selection", async () => {
   }, { repo });
 
   assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "context_continuation");
+  assert.equal(result.classification.budget, 2000);
   assert.equal(result.recommendedProducts[0].code, "P002");
 });
 
