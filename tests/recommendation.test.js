@@ -155,6 +155,19 @@ test("budget refinement prefers products near the new budget ceiling", () => {
   assert.ok(result.every((product) => product.price <= 2000));
 });
 
+test("budget floor recommendations do not include products below the floor", () => {
+  const result = recommendProducts(products, {
+    budget: 1000,
+    budget_min: 1000,
+    budget_relation: "at_least",
+    use_case: "",
+    keywords: []
+  });
+
+  assert.equal(result[0].code, "P002");
+  assert.ok(result.every((product) => product.price >= 1000));
+});
+
 test("budget refinement keeps the previously recommended product eligible", () => {
   const classification = enrichProductClassification({
     intent: "product_recommendation",

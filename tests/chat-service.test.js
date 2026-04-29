@@ -90,6 +90,25 @@ test("chat workflow uses later customer budget to refine the previous product re
   assert.ok(result.recommendedProducts.every((product) => product.price <= 600));
 });
 
+test("chat workflow treats above-budget wording as a price floor", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "推薦商品" },
+      { role: "ai", content: "請問您要用來做什麼呢？如果方便，也可以一起告訴我大約預算或想找的品類。" }
+    ]
+  });
+  const result = await handleChat({
+    message: "1000 以上的",
+    sessionId: "context-session-budget-floor"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "budget_refinement");
+  assert.equal(result.classification.budget_min, 1000);
+  assert.equal(result.recommendedProducts[0].code, "P002");
+  assert.ok(result.recommendedProducts.every((product) => product.price >= 1000));
+});
+
 test("chat workflow treats cheaper follow-up as a product refinement", async () => {
   const repo = createContextRepo({
     recentMessages: [

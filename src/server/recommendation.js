@@ -13,14 +13,14 @@ export function getMissingProductFields(classification) {
   if (explicitMissing.length) return [...new Set(explicitMissing)];
 
   const missing = [];
-  const budget = normalizeBudget(classification?.budget);
+  const hasBudget = hasBudgetConstraint(classification);
   const useCase = String(classification?.use_case || "").trim();
   const keywords = Array.isArray(classification?.keywords)
     ? classification.keywords.filter(isMeaningfulUseCaseToken).join(" ")
     : "";
   const combined = `${useCase} ${keywords}`.trim();
 
-  if (!budget) missing.push("budget");
+  if (!hasBudget) missing.push("budget");
   if (!combined) missing.push("use_case");
 
   return missing;
@@ -33,7 +33,10 @@ export function formatMissingProductFields(fields) {
 }
 
 export function recommendProducts(products, classification) {
-  const budget = normalizeBudget(classification?.budget);
+  const budgetConstraint = getBudgetConstraint(classification);
+  const budget = budgetConstraint.max;
+  const budgetMin = budgetConstraint.min;
+  const hasBudget = Boolean(budget || budgetMin);
   const category = normalizeText(classification?.category);
   const useCase = normalizeText(classification?.use_case);
   const referenceProductCode = normalizeText(classification?.reference_product_code);
@@ -52,8 +55,9 @@ export function recommendProducts(products, classification) {
     ? [...new Set(classification.keywords.flatMap(expandKeyword))]
     : [];
   const hasSpecificNeed = Boolean(category || useCase || keywords.length);
-  const budgetOnlyScore = budget ? 4 : 0;
+  const budgetOnlyScore = hasBudget ? 4 : 0;
   const preferBudgetCeiling = budget && classification?.follow_up === "budget_refinement";
+  const preferBudgetFloor = budgetMin && !budget && classification?.follow_up === "budget_refinement";
 
   if (referenceProductCode) {
     const referenced = products.find((product) => normalizeText(product.code) === referenceProductCode);
@@ -68,19 +72,20 @@ export function recommendProducts(products, classification) {
     }))
     .map((product) => ({
       product,
-      score: scoreProduct(product, { budget, category, useCase, keywords })
+      score: scoreProduct(product, { budget, budgetMin, category, useCase, keywords })
     }))
     .filter(({ score }) => score > 0 && (!hasSpecificNeed || score > budgetOnlyScore))
-    .sort((a, b) => compareScoredProducts(a, b, { budget, preferBudgetCeiling }));
+    .sort((a, b) => compareScoredProducts(a, b, { budget, budgetMin, preferBudgetCeiling, preferBudgetFloor }));
 
-  const underBudget = scored.filter(({ product }) => !budget || Number(product.price) <= budget);
+  const withinBudget = scored.filter(({ product }) => isWithinBudget(product, { budget, budgetMin }));
   const cheaperThanReference = scored.filter(({ product }) => {
-    return !referencePrice || Number(product.price) < referencePrice;
+    return (!referencePrice || Number(product.price) < referencePrice) &&
+      isWithinBudget(product, { budget, budgetMin });
   });
 
   let source = wantsCheaper && cheaperThanReference.length
     ? cheaperThanReference
-    : underBudget.length ? underBudget : scored;
+    : withinBudget.length ? withinBudget : hasBudget ? [] : scored;
 
   const filtered = source.filter(({ product }) => !isExcludedProduct(product, {
     excludedCodes,
@@ -89,7 +94,7 @@ export function recommendProducts(products, classification) {
   }));
   if (filtered.length) source = filtered;
   else if (classification?.follow_up && (excludedCodes.size || excludedCategories.size || excludedKeywords.size)) {
-    const fallback = fallbackProductScores(products, { budget, referencePrice, wantsCheaper })
+    const fallback = fallbackProductScores(products, { budget, budgetMin, referencePrice, wantsCheaper })
       .filter(({ product }) => !isExcludedProduct(product, {
         excludedCodes,
         excludedCategories,
@@ -123,7 +128,8 @@ export function enrichProductClassification(classification, message, conversatio
   const context = getProductConversationContext(conversationHistory);
   const productReference = resolveProductReference(message, context);
   const followUp = inferProductFollowUp(message, context);
-  const messageBudget = extractBudget(message);
+  const messageBudgetConstraint = extractBudgetConstraint(message);
+  const messageBudget = messageBudgetConstraint.amount || extractBudget(message);
   const messageUseCase = inferUseCaseFromText(message);
   const negativePreferences = extractNegativePreferences(message, context);
   const effectiveProductReference = productReference &&
@@ -147,6 +153,13 @@ export function enrichProductClassification(classification, message, conversatio
   const contextFollowUp = context.hasProductContext
     ? effectiveProductReference ? "product_reference" : followUp || (messageBudget ? "budget_refinement" : "context_continuation")
     : classification?.follow_up || "";
+  const hasMessageBudgetConstraint = Boolean(messageBudgetConstraint.relation);
+  const nextBudgetMin = hasMessageBudgetConstraint
+    ? messageBudgetConstraint.min ?? null
+    : normalizeBudget(classification?.budget_min) ?? context.lastBudgetMin ?? null;
+  const nextBudgetMax = hasMessageBudgetConstraint
+    ? messageBudgetConstraint.max ?? null
+    : normalizeBudget(classification?.budget_max) ?? context.lastBudgetMax ?? null;
 
   const next = {
     ...classification,
@@ -155,6 +168,9 @@ export function enrichProductClassification(classification, message, conversatio
     need_human: false,
     follow_up: contextFollowUp,
     budget: effectiveProductReference ? context.lastBudget || null : messageBudget || classification?.budget || context.lastBudget || null,
+    budget_min: nextBudgetMin,
+    budget_max: nextBudgetMax,
+    budget_relation: messageBudgetConstraint.relation || classification?.budget_relation || context.lastBudgetRelation || "",
     category: messageUseCase ? classification?.category || "" : classification?.category || "",
     use_case: messageUseCase || classification?.use_case || context.lastUseCase || "",
     keywords: buildContextualKeywords(classification?.keywords, message),
@@ -227,12 +243,12 @@ export function normalizeBudget(value) {
 
   const chineseMatch = normalized.match(/[一二兩三四五六七八九十百千萬]+/);
   if (!chineseMatch) return null;
-  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|元|塊/.test(normalized);
+  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|以上|起|元|塊/.test(normalized);
   const hasLargeUnit = /百|千|萬/.test(chineseMatch[0]);
   return hasBudgetContext || hasLargeUnit ? parseChineseNumber(chineseMatch[0]) : null;
 }
 
-function scoreProduct(product, { budget, category, useCase, keywords }) {
+function scoreProduct(product, { budget, budgetMin, category, useCase, keywords }) {
   let score = 0;
   const haystack = [
     product.code,
@@ -246,7 +262,7 @@ function scoreProduct(product, { budget, category, useCase, keywords }) {
     .map(normalizeText)
     .join(" ");
 
-  if (budget && Number(product.price) <= budget) score += 4;
+  if ((budget || budgetMin) && isWithinBudget(product, { budget, budgetMin })) score += 4;
   if (category && normalizeText(product.category).includes(category)) score += 3;
   if (useCase) {
     if (haystack.includes(useCase)) {
@@ -265,7 +281,7 @@ function scoreProduct(product, { budget, category, useCase, keywords }) {
   return score;
 }
 
-function compareScoredProducts(a, b, { budget, preferBudgetCeiling }) {
+function compareScoredProducts(a, b, { budget, budgetMin, preferBudgetCeiling, preferBudgetFloor }) {
   const scoreDiff = b.score - a.score;
   if (scoreDiff) return scoreDiff;
 
@@ -275,24 +291,79 @@ function compareScoredProducts(a, b, { budget, preferBudgetCeiling }) {
     if (aDistance !== bDistance) return aDistance - bDistance;
   }
 
+  if (preferBudgetFloor) {
+    const aDistance = Math.abs(Number(a.product.price) - budgetMin);
+    const bDistance = Math.abs(Number(b.product.price) - budgetMin);
+    if (aDistance !== bDistance) return aDistance - bDistance;
+  }
+
   return Number(a.product.price) - Number(b.product.price);
 }
 
-function fallbackProductScores(products, { budget, referencePrice, wantsCheaper }) {
+function fallbackProductScores(products, { budget, budgetMin, referencePrice, wantsCheaper }) {
   return products
     .map((product) => {
       let score = 1;
-      if (budget && Number(product.price) <= budget) score += 4;
+      if ((budget || budgetMin) && isWithinBudget(product, { budget, budgetMin })) score += 4;
       if (wantsCheaper && referencePrice && Number(product.price) < referencePrice) score += 3;
       if (product.tags?.some((tag) => /預算友善|日常|新手/.test(tag))) score += 1;
       return { product, score };
     })
     .filter(({ product }) => {
-      if (budget && Number(product.price) > budget) return false;
+      if (!isWithinBudget(product, { budget, budgetMin })) return false;
       if (wantsCheaper && referencePrice && Number(product.price) >= referencePrice) return false;
       return true;
     })
     .sort((a, b) => b.score - a.score || Number(a.product.price) - Number(b.product.price));
+}
+
+function hasBudgetConstraint(classification) {
+  const constraint = getBudgetConstraint(classification);
+  return Boolean(constraint.min || constraint.max);
+}
+
+function getBudgetConstraint(classification = {}) {
+  const relation = normalizeText(classification.budget_relation || classification.budgetRelation);
+  const budget = normalizeBudget(classification.budget);
+  const explicitMin = normalizeBudget(
+    classification.budget_min ?? classification.budgetMin ?? classification.min_budget ?? classification.budget_floor
+  );
+  const explicitMax = normalizeBudget(
+    classification.budget_max ?? classification.budgetMax ?? classification.max_budget ?? classification.budget_ceiling
+  );
+
+  if (["at_least", "min", "minimum", "floor", "above"].includes(relation)) {
+    return {
+      min: explicitMin ?? budget,
+      max: explicitMax
+    };
+  }
+
+  if (["range", "between"].includes(relation)) {
+    return {
+      min: explicitMin,
+      max: explicitMax ?? budget
+    };
+  }
+
+  if (explicitMin && !explicitMax && !["at_most", "max", "maximum", "ceiling", "below"].includes(relation)) {
+    return {
+      min: explicitMin,
+      max: null
+    };
+  }
+
+  return {
+    min: explicitMin,
+    max: explicitMax ?? budget
+  };
+}
+
+function isWithinBudget(product, { budget, budgetMin }) {
+  const price = Number(product.price);
+  if (budgetMin && price < budgetMin) return false;
+  if (budget && price > budget) return false;
+  return true;
 }
 
 function normalizeText(value) {
@@ -310,11 +381,15 @@ function getProductConversationContext(conversationHistory = []) {
     .map((item) => String(item.content || ""))
     .join("\n");
   const combined = `${aiText}\n${customerText}`;
+  const lastBudgetConstraint = extractLastBudgetConstraint(customerText);
 
   return {
     hasProductContext: /推薦|商品|產品|預算|用途|使用情境|詳情連結|P\d{3}/i.test(combined),
     recommendedProductCodes: extractProductCodes(aiText),
-    lastBudget: extractLastBudget(customerText),
+    lastBudget: lastBudgetConstraint.amount || extractLastBudget(customerText),
+    lastBudgetMin: lastBudgetConstraint.min,
+    lastBudgetMax: lastBudgetConstraint.max,
+    lastBudgetRelation: lastBudgetConstraint.relation,
     lastUseCase: inferUseCaseFromText(customerText) || inferUseCaseFromText(aiText),
     lastRecommendedPrice: extractLastPrice(aiText)
   };
@@ -326,7 +401,7 @@ function inferProductFollowUp(message, context) {
   if (/更便宜|便宜一點|低一點|價格低|預算低/.test(text)) return "cheaper";
   if (/不要|不想要|別|排除|換/.test(text)) return "alternative";
   if (/其他|別的|還有嗎|還有其他|換一個|換款|不同|另一個|另.*選項/.test(text)) return "alternative";
-  if (extractBudget(text)) return "budget_refinement";
+  if (extractBudgetConstraint(text).amount || extractBudget(text)) return "budget_refinement";
   if (inferUseCaseFromText(text)) return "need_refinement";
   return "";
 }
@@ -349,9 +424,70 @@ function extractBudget(text) {
 
   const chineseMatch = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(元|塊|以內|以下|左右)?/);
   if (!chineseMatch) return null;
-  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|元|塊/.test(normalized);
+  const hasBudgetContext = /預算|價格|大概|差不多|左右|以內|以下|以上|起|元|塊/.test(normalized);
   const hasLargeUnit = /百|千|萬/.test(chineseMatch[1]);
   return hasBudgetContext || hasLargeUnit ? parseChineseNumber(chineseMatch[1]) : null;
+}
+
+function extractBudgetConstraint(text) {
+  const normalized = sanitizeBudgetText(text);
+  const empty = { amount: null, min: null, max: null, relation: "" };
+  if (!normalized.trim()) return empty;
+
+  const numericRange = normalized.match(/(\d+)\s*(k|K|千)?\s*(?:到|至|-|~|～)\s*(\d+)\s*(k|K|千)?/);
+  if (numericRange) {
+    const min = parseBudgetAmount(numericRange[1], numericRange[2]);
+    const max = parseBudgetAmount(numericRange[3], numericRange[4] || numericRange[2]);
+    return { amount: max, min, max, relation: "range" };
+  }
+
+  const chineseRange = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(?:到|至|-|~|～)\s*([一二兩三四五六七八九十百千萬]+)/);
+  if (chineseRange) {
+    const min = parseBudgetAmount(chineseRange[1]);
+    const max = parseBudgetAmount(chineseRange[2]);
+    return { amount: max, min, max, relation: "range" };
+  }
+
+  const numericBetween = normalized.match(/(\d+)\s*(k|K|千)?\s*(?:以上|起)\s*(\d+)\s*(k|K|千)?\s*(?:以下|以內)/);
+  if (numericBetween) {
+    const min = parseBudgetAmount(numericBetween[1], numericBetween[2]);
+    const max = parseBudgetAmount(numericBetween[3], numericBetween[4] || numericBetween[2]);
+    return { amount: max, min, max, relation: "range" };
+  }
+
+  const chineseBetween = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(?:以上|起)\s*([一二兩三四五六七八九十百千萬]+)\s*(?:以下|以內)/);
+  if (chineseBetween) {
+    const min = parseBudgetAmount(chineseBetween[1]);
+    const max = parseBudgetAmount(chineseBetween[2]);
+    return { amount: max, min, max, relation: "range" };
+  }
+
+  const numericFloor = normalized.match(/(\d+)\s*(k|K|千|元|塊)?\s*(?:以上|起)/);
+  if (numericFloor) {
+    const min = parseBudgetAmount(numericFloor[1], numericFloor[2]);
+    return { amount: min, min, max: null, relation: "at_least" };
+  }
+
+  const chineseFloor = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(元|塊)?\s*(?:以上|起)/);
+  if (chineseFloor) {
+    const min = parseBudgetAmount(chineseFloor[1]);
+    return { amount: min, min, max: null, relation: "at_least" };
+  }
+
+  const numericCeiling = normalized.match(/(\d+)\s*(k|K|千|元|塊)?\s*(?:以下|以內|內)/);
+  if (numericCeiling) {
+    const max = parseBudgetAmount(numericCeiling[1], numericCeiling[2]);
+    return { amount: max, min: null, max, relation: "at_most" };
+  }
+
+  const chineseCeiling = normalized.match(/([一二兩三四五六七八九十百千萬]+)\s*(元|塊)?\s*(?:以下|以內|內)/);
+  if (chineseCeiling) {
+    const max = parseBudgetAmount(chineseCeiling[1]);
+    return { amount: max, min: null, max, relation: "at_most" };
+  }
+
+  const amount = extractBudget(text);
+  return amount ? { amount, min: null, max: amount, relation: "at_most" } : empty;
 }
 
 function extractLastBudget(text) {
@@ -361,6 +497,15 @@ function extractLastBudget(text) {
     if (parsed) return parsed;
   }
   return null;
+}
+
+function extractLastBudgetConstraint(text) {
+  const segments = String(text || "").split(/\n+/).map((item) => item.trim()).filter(Boolean);
+  for (const segment of segments.reverse()) {
+    const parsed = extractBudgetConstraint(segment);
+    if (parsed.amount) return parsed;
+  }
+  return { amount: null, min: null, max: null, relation: "" };
 }
 
 function extractLastPrice(text) {
@@ -411,7 +556,7 @@ function isFreshProductRequest(message = "") {
     return false;
   }
 
-  return /推薦商品|商品推薦|推薦.*商品|想找.*商品|找.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|想買.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|預算.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|\d+\s*(元|塊|以內|以下)?.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|新手商品|送禮.*商品|家用.*商品/i.test(text);
+  return /推薦商品|商品推薦|推薦.*商品|想找.*商品|找.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|想買.*(新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|預算.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|\d+\s*(元|塊|以內|以下|以上|起)?.*(商品|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c)|新手商品|送禮.*商品|家用.*商品/i.test(text);
 }
 
 function isMeaningfulUseCaseToken(value) {
