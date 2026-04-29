@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildProductRecommendationReply,
+  enrichProductClassification,
   getMissingProductFields,
   recommendProducts
 } from "../src/server/recommendation.js";
@@ -131,6 +132,51 @@ test("uses later budget refinements to prefer better-priced products", () => {
 
   assert.equal(result[0].code, "P003");
   assert.ok(result.every((product) => product.price <= 600));
+});
+
+test("budget refinement prefers products near the new budget ceiling", () => {
+  const result = recommendProducts(products, {
+    budget: 2000,
+    use_case: "",
+    keywords: [],
+    follow_up: "budget_refinement"
+  });
+
+  assert.equal(result[0].code, "P002");
+  assert.ok(result.every((product) => product.price <= 2000));
+});
+
+test("budget refinement keeps the previously recommended product eligible", () => {
+  const classification = enrichProductClassification({
+    intent: "product_recommendation",
+    confidence: 0.72,
+    budget: null,
+    use_case: "",
+    keywords: []
+  }, "那我最後確定要 2000 以下的", [
+    { role: "customer", content: "我不要 1000 以下了，改 2000" },
+    { role: "ai", content: "P002｜專注降噪耳機\n價格：NT$ 1680\n詳情連結：/products/P002" }
+  ]);
+
+  assert.equal(classification.follow_up, "budget_refinement");
+  assert.equal(classification.budget, 2000);
+  assert.deepEqual(classification.exclude_product_codes || [], []);
+});
+
+test("alternative follow-up still excludes products already shown", () => {
+  const classification = enrichProductClassification({
+    intent: "product_recommendation",
+    confidence: 0.72,
+    budget: null,
+    use_case: "",
+    keywords: []
+  }, "有其他的嗎？", [
+    { role: "customer", content: "我想找 1000 元內的新手商品" },
+    { role: "ai", content: "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001" }
+  ]);
+
+  assert.equal(classification.follow_up, "alternative");
+  assert.deepEqual(classification.exclude_product_codes, ["P001"]);
 });
 
 test("builds product recommendations with details and links inside the reply", () => {

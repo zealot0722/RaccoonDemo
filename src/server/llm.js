@@ -300,7 +300,7 @@ function looksLikeOrderStatus(message, identifiers = {}) {
 
 function hasRecentProductContext(conversationHistory) {
   return conversationHistory.slice(-4).some((item) => {
-    return /推薦|商品|預算|用途|使用情境|品類/.test(String(item.content || ""));
+    return /推薦|商品|產品|預算|用途|使用情境|品類|詳情連結|價格|P\d{3}/i.test(String(item.content || ""));
   });
 }
 
@@ -311,7 +311,7 @@ function inferUseCase(text, conversationHistory = []) {
   if (/家用|居家/.test(text)) return "居家使用";
   if (/清潔/.test(text)) return "清潔";
   if (/保養/.test(text)) return "保養";
-  if (/耳機|3c/i.test(text)) return "3C 使用";
+  if (/耳機|3c/i.test(text)) return "3C";
 
   const prior = conversationHistory.map((item) => item.content).join(" ");
   if (/新手|入門/.test(prior)) return "新手入門";

@@ -926,6 +926,23 @@ a:hover {
     grid-template-columns: 72px minmax(0, 1fr);
   }
 
+  .quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px 12px;
+    max-height: 136px;
+    overflow-y: auto;
+  }
+
+  .quick-actions button {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 8px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
   .composer {
     grid-template-columns: 1fr;
   }
@@ -937,5 +954,12 @@ a:hover {
   .ticket-update-panel,
   .ticket-stats {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .quick-actions {
+    grid-template-columns: 1fr;
+    max-height: 168px;
   }
 }

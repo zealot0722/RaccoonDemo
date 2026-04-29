@@ -46,6 +46,7 @@ export function recommendProducts(products, classification) {
     : [];
   const hasSpecificNeed = Boolean(category || useCase || keywords.length);
   const budgetOnlyScore = budget ? 4 : 0;
+  const preferBudgetCeiling = budget && classification?.follow_up === "budget_refinement";
 
   const scored = products
     .map((product) => ({
@@ -53,7 +54,7 @@ export function recommendProducts(products, classification) {
       score: scoreProduct(product, { budget, category, useCase, keywords })
     }))
     .filter(({ score }) => score > 0 && (!hasSpecificNeed || score > budgetOnlyScore))
-    .sort((a, b) => b.score - a.score || Number(a.product.price) - Number(b.product.price));
+    .sort((a, b) => compareScoredProducts(a, b, { budget, preferBudgetCeiling }));
 
   const underBudget = scored.filter(({ product }) => !budget || Number(product.price) <= budget);
   const cheaperThanReference = scored.filter(({ product }) => {
@@ -98,13 +99,13 @@ export function enrichProductClassification(classification, message, conversatio
     confidence: Math.max(Number(classification?.confidence || 0), followUp || freshProductRequest ? 0.82 : 0.76),
     follow_up: contextFollowUp,
     budget: messageBudget || classification?.budget || context.lastBudget || null,
-    category: messageUseCase ? classification?.category || "" : "",
-    use_case: messageUseCase || "",
+    category: messageUseCase ? classification?.category || "" : classification?.category || "",
+    use_case: messageUseCase || classification?.use_case || context.lastUseCase || "",
     keywords: buildContextualKeywords(classification?.keywords, message),
     missing_fields: []
   };
 
-  if (context.recommendedProductCodes.length) {
+  if (context.recommendedProductCodes.length && ["alternative", "cheaper"].includes(next.follow_up)) {
     next.exclude_product_codes = context.recommendedProductCodes;
   }
 
@@ -163,13 +164,34 @@ function scoreProduct(product, { budget, category, useCase, keywords }) {
 
   if (budget && Number(product.price) <= budget) score += 4;
   if (category && normalizeText(product.category).includes(category)) score += 3;
-  if (useCase && haystack.includes(useCase)) score += 4;
+  if (useCase) {
+    if (haystack.includes(useCase)) {
+      score += 4;
+    } else {
+      const useCaseMatches = expandKeyword(useCase)
+        .filter((token) => token.length >= 2 && haystack.includes(token));
+      if (useCaseMatches.length) score += Math.min(4, useCaseMatches.length * 2);
+    }
+  }
 
   for (const keyword of keywords) {
     if (keyword && haystack.includes(keyword)) score += 2;
   }
 
   return score;
+}
+
+function compareScoredProducts(a, b, { budget, preferBudgetCeiling }) {
+  const scoreDiff = b.score - a.score;
+  if (scoreDiff) return scoreDiff;
+
+  if (preferBudgetCeiling) {
+    const aDistance = Math.abs(Number(a.product.price) - budget);
+    const bDistance = Math.abs(Number(b.product.price) - budget);
+    if (aDistance !== bDistance) return aDistance - bDistance;
+  }
+
+  return Number(a.product.price) - Number(b.product.price);
 }
 
 function fallbackProductScores(products, { budget, referencePrice, wantsCheaper }) {
@@ -209,6 +231,7 @@ function getProductConversationContext(conversationHistory = []) {
     hasProductContext: /推薦|商品|產品|預算|用途|使用情境|詳情連結|P\d{3}/i.test(combined),
     recommendedProductCodes: extractProductCodes(aiText),
     lastBudget: extractLastBudget(customerText),
+    lastUseCase: inferUseCaseFromText(customerText) || inferUseCaseFromText(aiText),
     lastRecommendedPrice: extractLastPrice(aiText)
   };
 }
@@ -254,7 +277,7 @@ function inferUseCaseFromText(text) {
   if (/清潔/.test(text)) return "清潔";
   if (/保養/.test(text)) return "保養";
   if (/通勤|辦公|會議/.test(text)) return "工作通勤";
-  if (/耳機|3c/i.test(text)) return "3C 使用";
+  if (/耳機|3c/i.test(text)) return "3C";
   return "";
 }
 

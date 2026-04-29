@@ -112,6 +112,54 @@ test("chat workflow treats cheaper follow-up as a product refinement", async () 
   assert.ok(result.recommendedProducts[0].price < 890);
 });
 
+test("budget increases keep the previously suitable product in context", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我不要 1000 以下了，改 2000" },
+      {
+        role: "ai",
+        content: "P002｜行動辦公耳機\n價格：NT$ 1680\n詳情連結：/products/P002"
+      },
+      { role: "customer", content: "加碼到 5000" },
+      {
+        role: "ai",
+        content: "P002｜行動辦公耳機\n價格：NT$ 1680\n詳情連結：/products/P002"
+      }
+    ]
+  });
+  const result = await handleChat({
+    message: "那我最後確定要 2000 以下的",
+    sessionId: "context-session-budget-return"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "budget_refinement");
+  assert.equal(result.classification.budget, 2000);
+  assert.equal(result.recommendedProducts[0].code, "P002");
+});
+
+test("higher budget refinements do not return no product when demo catalog has lower-priced items", async () => {
+  const repo = createContextRepo({
+    recentMessages: [
+      { role: "customer", content: "我不要 1000 以下了，改 2000" },
+      {
+        role: "ai",
+        content: "P002｜行動辦公耳機\n價格：NT$ 1680\n詳情連結：/products/P002"
+      }
+    ]
+  });
+  const result = await handleChat({
+    message: "加碼到 5000",
+    sessionId: "context-session-budget-5000"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "product_recommendation");
+  assert.equal(result.classification.follow_up, "budget_refinement");
+  assert.equal(result.recommendedProducts.length > 0, true);
+  assert.equal(result.recommendedProducts[0].code, "P002");
+  assert.doesNotMatch(result.reply, /沒有找到完全符合/);
+});
+
 test("chat workflow creates needs_review ticket for human handoff", async () => {
   const result = await handleChat({
     message: "我要找真人客服",
