@@ -34,7 +34,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
   ]);
 
   const explicitConversationEnd = isConversationEndMessage(cleanMessage);
-  const classification = explicitConversationEnd
+  const classificationResult = explicitConversationEnd
     ? {
         intent: "conversation_end",
         confidence: 0.98,
@@ -51,6 +51,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
         config: options.config,
         conversationHistory
       });
+  const classification = applyWorkflowRouting(classificationResult, cleanMessage);
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
 
   const missingProductFields = getMissingProductFields(classification);
@@ -238,6 +239,37 @@ function buildMissingProductReply(fields) {
   }
 
   return `可以的，我先幫您縮小範圍。\n請問您方便補充${formatMissingProductFields(fields)}嗎？`;
+}
+
+function applyWorkflowRouting(classification, message) {
+  if (["human_handoff", "complaint", "conversation_end"].includes(classification.intent)) {
+    return classification;
+  }
+
+  const identifiers = getOrderIdentifiers({}, message);
+  if (!isOrderStatusRequest(message, identifiers)) {
+    return classification;
+  }
+
+  return {
+    ...classification,
+    intent: "order_status",
+    confidence: Math.max(Number(classification.confidence || 0), 0.82),
+    summary: classification.summary || "客戶詢問訂單或物流貨態",
+    order_no: classification.order_no || identifiers.orderNo,
+    tracking_no: classification.tracking_no || identifiers.trackingNo,
+    missing_fields: identifiers.orderNo || identifiers.trackingNo ? [] : ["order_identifier"],
+    keywords: [...new Set([...(classification.keywords || []), "貨態"])]
+  };
+}
+
+function isOrderStatusRequest(message, identifiers = {}) {
+  const text = String(message || "");
+  if (identifiers.orderNo || identifiers.trackingNo) {
+    return /查|貨態|物流|配送|出貨|到貨|包裹|訂單/.test(text);
+  }
+
+  return /查貨|貨態|物流單號|訂單編號|配送進度|包裹|出貨|到貨了嗎|到貨沒/.test(text);
 }
 
 function appendContinuationPrompt(reply, {
