@@ -103,6 +103,21 @@ export function recommendProducts(products, classification) {
 
 export function enrichProductClassification(classification, message, conversationHistory = []) {
   if (classification?.intent === "unclear") return classification;
+  if (classification?.intent === "order_status") return classification;
+  if (isBareOrderIdentifierText(message)) {
+    return {
+      ...classification,
+      intent: "out_of_scope",
+      confidence: Math.max(Number(classification?.confidence || 0), 0.7),
+      need_human: false,
+      budget: null,
+      category: "",
+      use_case: "",
+      follow_up: "",
+      missing_fields: [],
+      keywords: [...new Set([...(classification?.keywords || []), "order_identifier_without_context"])]
+    };
+  }
 
   const context = getProductConversationContext(conversationHistory);
   const productReference = resolveProductReference(message, context);
@@ -531,6 +546,8 @@ function parseBudgetCeiling(value) {
 function sanitizeBudgetText(value) {
   return String(value || "")
     .replace(/\bP\d{3,}\b/gi, "")
+    .replace(/\b(?:RAC|ORD|ORDER|O)[-_]?\d{4,12}\b/gi, "")
+    .replace(/\b(?:RC|TRK|TRACK|SHIP)[-_]?[A-Z0-9]{6,16}\b/gi, "")
     .replace(/\b\d+\s*[cC]\b/g, "")
     .replace(/第\s*\d+\s*(個|款|項|組|種)?/g, "")
     .replace(/第\s*[一二兩三四五六七八九十]+\s*(個|款|項|組|種)?/g, "")
@@ -544,6 +561,16 @@ function parseBudgetAmount(value, unit = "") {
   }
 
   return parseChineseNumber(value);
+}
+
+function isBareOrderIdentifierText(message = "") {
+  const text = String(message || "").trim();
+  if (!text) return false;
+  const stripped = text
+    .replace(/\b(?:RAC|ORD|ORDER|O)[-_]?\d{4,12}\b/gi, "")
+    .replace(/\b(?:RC|TRK|TRACK|SHIP)[-_]?[A-Z0-9]{6,16}\b/gi, "")
+    .replace(/[\s，,。.!！?？：:]+/g, "");
+  return stripped.length === 0 && /\b(?:RAC|ORD|ORDER|O)[-_]?\d{4,12}\b|\b(?:RC|TRK|TRACK|SHIP)[-_]?[A-Z0-9]{6,16}\b/i.test(text);
 }
 
 function parseChineseNumber(input) {

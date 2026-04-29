@@ -279,6 +279,109 @@ test("semantic follow-up guardrails surface multi-intent messages for review", a
   }
 });
 
+test("order-status requests keep priority over product context", async () => {
+  const productContext = [
+    { role: "customer", content: "我想找 2000 元內的耳機" },
+    {
+      role: "ai",
+      content: "P002｜行動辦公耳機\n價格：NT$ 1680\n庫存：有庫存\n詳情連結：/products/P002"
+    }
+  ];
+
+  const cases = [
+    ["我想查貨態", false],
+    ["幫我查 RAC1001", true],
+    ["查一下 RC123456789TW", true],
+    ["我的包裹在哪", false],
+    ["怎麼還沒到", false]
+  ];
+
+  for (const [message, shouldFindOrder] of cases) {
+    const result = await handleChat({ message, sessionId: `order-over-product-${message}` }, {
+      repo: createRepo(productContext)
+    });
+    assert.equal(result.classification.intent, "order_status", message);
+    assert.deepEqual(result.recommendedProducts, [], message);
+    if (shouldFindOrder) {
+      assert.equal(result.orderStatus.found, true, message);
+    } else {
+      assert.deepEqual(result.missingOrderFields, ["order_identifier"], message);
+    }
+  }
+});
+
+test("product stock questions remain product follow-ups instead of order-status lookups", async () => {
+  const productContext = [
+    { role: "customer", content: "我想找 2000 元內的耳機" },
+    {
+      role: "ai",
+      content: "P002｜行動辦公耳機\n價格：NT$ 1680\n庫存：有庫存\n詳情連結：/products/P002"
+    }
+  ];
+  const multiProductContext = [
+    { role: "customer", content: "我想找 2000 元內送禮或通勤用商品" },
+    {
+      role: "ai",
+      content: [
+        "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001",
+        "P002｜行動辦公耳機\n價格：NT$ 1680\n庫存：有庫存\n詳情連結：/products/P002"
+      ].join("\n\n")
+    }
+  ];
+
+  const stock = await handleChat({
+    message: "這款有庫存嗎",
+    sessionId: "product-stock-boundary"
+  }, {
+    repo: createRepo(productContext)
+  });
+  assert.equal(stock.classification.intent, "product_recommendation");
+  assert.equal(stock.recommendedProducts[0]?.code, "P002");
+  assert.equal(stock.orderStatus, null);
+
+  const available = await handleChat({
+    message: "第二個有貨嗎",
+    sessionId: "product-available-boundary"
+  }, {
+    repo: createRepo(multiProductContext)
+  });
+  assert.equal(available.classification.intent, "product_recommendation");
+  assert.equal(available.recommendedProducts[0]?.code, "P002");
+  assert.equal(available.orderStatus, null);
+});
+
+test("bare order identifiers only resolve inside order-status context", async () => {
+  const orderContext = [
+    { role: "customer", content: "我想查貨態" },
+    { role: "ai", content: "可以，我幫您查貨態。\n請問您方便提供訂單編號或物流單號嗎？" }
+  ];
+  const productContext = [
+    { role: "customer", content: "我想找 2000 元內的耳機" },
+    {
+      role: "ai",
+      content: "P002｜行動辦公耳機\n價格：NT$ 1680\n庫存：有庫存\n詳情連結：/products/P002"
+    }
+  ];
+
+  const orderResult = await handleChat({
+    message: "RAC1001",
+    sessionId: "bare-order-id-context"
+  }, {
+    repo: createRepo(orderContext)
+  });
+  assert.equal(orderResult.classification.intent, "order_status");
+  assert.equal(orderResult.orderStatus.found, true);
+
+  const productResult = await handleChat({
+    message: "RAC1001",
+    sessionId: "bare-product-id-context"
+  }, {
+    repo: createRepo(productContext)
+  });
+  assert.notEqual(productResult.classification.intent, "product_recommendation");
+  assert.equal(productResult.recommendedProducts.length, 0);
+});
+
 function createRepo(recentMessages = []) {
   const tickets = [];
   const messages = [];
