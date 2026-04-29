@@ -80,7 +80,7 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
 
   const missingProductFields = getMissingProductFields(classification);
   const missingOrderFields = getMissingOrderFields(classification, cleanMessage);
-  const missingReturnFields = getMissingReturnFields(classification, messageForClassification);
+  const missingReturnFields = getMissingReturnFields(classification, messageForClassification, conversationHistory);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
     : null;
@@ -116,7 +116,8 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
     missingReturnFields,
     attachments: cleanAttachments,
     matchedFaq,
-    recommendedProducts
+    recommendedProducts,
+    conversationHistory
   });
 
   const rawReply = await buildReply({
@@ -334,19 +335,30 @@ function buildChitchatReply(turnCount) {
 }
 
 function applyWorkflowRouting(classification, message, conversationHistory = []) {
-  if (["human_handoff", "complaint", "conversation_end"].includes(classification.intent)) {
+  const multiIntent = detectMultiIntent(message);
+  if (multiIntent.length > 1) {
+    return buildMultiIntentClassification(classification, message, conversationHistory, multiIntent);
+  }
+
+  if (["complaint", "conversation_end"].includes(classification.intent)) {
+    return classification;
+  }
+
+  if (classification.intent === "human_handoff" && isExplicitHumanHandoff(message)) {
     return classification;
   }
 
   if (isReturnRequestMessage(message, conversationHistory)) {
-    return {
+    const routed = {
       ...classification,
       intent: "return_request",
+      need_human: false,
       confidence: Math.max(Number(classification.confidence || 0), 0.82),
       summary: classification.summary || "客戶提出退貨或退換貨申請",
-      missing_fields: getMissingReturnFields({ intent: "return_request" }, message),
+      missing_fields: getMissingReturnFields({ intent: "return_request" }, message, conversationHistory),
       keywords: [...new Set([...(classification.keywords || []), "退貨"])]
     };
+    return routed;
   }
 
   const identifiers = getOrderIdentifiers({}, message);
@@ -357,6 +369,7 @@ function applyWorkflowRouting(classification, message, conversationHistory = [])
   return {
     ...classification,
     intent: "order_status",
+    need_human: false,
     confidence: Math.max(Number(classification.confidence || 0), 0.82),
     summary: classification.summary || "客戶詢問訂單或物流貨態",
     order_no: classification.order_no || identifiers.orderNo,
@@ -408,17 +421,20 @@ function buildSupportSummary({
   missingReturnFields,
   attachments,
   matchedFaq,
-  recommendedProducts
+  recommendedProducts,
+  conversationHistory
 }) {
   const intent = classification.intent || "-";
+  const multiIntentSummary = formatMultiIntentSummary(classification, message);
 
   if (intent === "return_request") {
-    const returnInfo = summarizeReturnInfo(message, attachments);
+    const returnInfo = summarizeReturnInfo(message, attachments, conversationHistory);
     const status = missingReturnFields?.length
       ? `缺少：${formatMissingReturnFields(missingReturnFields)}`
       : "必要資料齊全";
     return [
       "客服摘要：退貨申請",
+      multiIntentSummary,
       `狀態：${status}`,
       returnInfo ? `退貨資料：${returnInfo}` : "",
       `處理：${decision.decision === "needs_review" ? "轉人工判斷" : "等待客戶補資料"}`
@@ -428,6 +444,7 @@ function buildSupportSummary({
   if (intent === "order_status") {
     return [
       "客服摘要：查貨態",
+      multiIntentSummary,
       orderIdentifiers.orderNo || orderIdentifiers.trackingNo
         ? `查詢編號：${orderIdentifiers.orderNo || orderIdentifiers.trackingNo}`
         : "查詢編號：未提供",
@@ -439,6 +456,7 @@ function buildSupportSummary({
   if (intent === "product_recommendation") {
     return [
       "客服摘要：商品推薦",
+      multiIntentSummary,
       recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "推薦商品：尚未推薦",
       formatProductFollowUpSummary(classification),
       `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`
@@ -455,6 +473,7 @@ function buildSupportSummary({
 
   return [
     `客服摘要：${classification.summary || message.slice(0, 40) || intent}`,
+    multiIntentSummary,
     matchedFaq ? `FAQ：${matchedFaq.code}` : "",
     `處理：${decision.decision === "needs_review" ? "轉人工" : "自動回覆"}`,
     decision.handoffReason ? `原因：${decision.handoffReason}` : ""
@@ -483,10 +502,84 @@ function formatProductFollowUpSummary(classification = {}) {
     cheaper: "追問更低價品項",
     budget_refinement: "補充預算條件",
     need_refinement: "補充用途條件",
-    context_continuation: "延續上一輪商品推薦"
+    context_continuation: "延續上一輪商品推薦",
+    product_reference: "詢問上一輪指定商品"
   };
   const excluded = classification.exclude_product_codes?.length
     ? `，排除前次商品：${classification.exclude_product_codes.join(", ")}`
     : "";
   return `上下文：${labels[classification.follow_up] || classification.follow_up}${excluded}`;
+}
+
+function detectMultiIntent(message = "") {
+  const text = String(message || "");
+  const identifiers = getOrderIdentifiers({}, text);
+  const intents = [];
+
+  if (isReturnRequestMessage(text, [])) intents.push("return_request");
+  if (/查貨|貨態|物流|配送進度|包裹|出貨|到貨|訂單|請查|幫我查|順便查/.test(text) || identifiers.orderNo || identifiers.trackingNo) {
+    intents.push("order_status");
+  }
+  if (/推薦|商品推薦|推薦商品|想找.*商品|想買|耳機|預算/.test(text)) {
+    intents.push("product_recommendation");
+  }
+  if (isExplicitHumanHandoff(text)) intents.push("human_handoff");
+  if (/保固|付款|發票|退貨規則|退貨流程|配送時間/.test(text)) intents.push("faq");
+
+  return [...new Set(intents)];
+}
+
+function buildMultiIntentClassification(classification, message, conversationHistory, multiIntent) {
+  const primaryIntent = multiIntent.includes("human_handoff")
+    ? "human_handoff"
+    : multiIntent.includes("return_request")
+      ? "return_request"
+      : multiIntent.includes("order_status")
+        ? "order_status"
+        : multiIntent[0];
+  const identifiers = getOrderIdentifiers(classification, message);
+  const labels = multiIntent.map(formatIntentLabel);
+  const next = {
+    ...classification,
+    intent: primaryIntent,
+    confidence: Math.max(Number(classification.confidence || 0), 0.84),
+    need_human: true,
+    summary: `客戶同時提出：${labels.join("、")}。原始內容：${String(message || "").slice(0, 80)}`,
+    multi_intent: multiIntent,
+    multi_intent_labels: labels,
+    order_no: classification.order_no || identifiers.orderNo,
+    tracking_no: classification.tracking_no || identifiers.trackingNo,
+    keywords: [...new Set([...(classification.keywords || []), ...labels])]
+  };
+
+  if (primaryIntent === "return_request") {
+    next.missing_fields = getMissingReturnFields({ intent: "return_request" }, message, conversationHistory);
+  } else if (primaryIntent === "order_status") {
+    next.missing_fields = next.order_no || next.tracking_no ? [] : ["order_identifier"];
+  }
+
+  return next;
+}
+
+function isExplicitHumanHandoff(message = "") {
+  return /真人|人工|專人|轉人工|客服人員|真人客服|人工客服|我要人處理|找人處理/.test(String(message || ""));
+}
+
+function formatIntentLabel(intent) {
+  const labels = {
+    return_request: "退貨",
+    order_status: "貨態",
+    product_recommendation: "商品推薦",
+    human_handoff: "真人客服",
+    faq: "保固/FAQ"
+  };
+  return labels[intent] || intent;
+}
+
+function formatMultiIntentSummary(classification = {}, message = "") {
+  if (!classification.multi_intent?.length) return "";
+  const labels = classification.multi_intent_labels?.length
+    ? classification.multi_intent_labels.join("、")
+    : classification.multi_intent.map(formatIntentLabel).join("、");
+  return `多需求：${labels}｜原始內容：${String(message || "").slice(0, 80)}`;
 }

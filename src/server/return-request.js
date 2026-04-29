@@ -8,17 +8,17 @@ export function isReturnRequestMessage(message, conversationHistory = []) {
   const text = String(message || "");
   if (isReturnPolicyQuestion(text)) return false;
   if (/退貨|退款|換貨|退換貨|退掉|想退|我要退/.test(text)) return true;
-  if (/(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件).*(商品|東西|貨|包裹)|收到.*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)/.test(text)) {
+  if (/(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件).*(商品|東西|貨|包裹)|(商品|東西|貨|包裹).*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)|收到.*(壞掉|破損|損壞|瑕疵|故障|不能用|有問題|少件|缺件)/.test(text)) {
     return true;
   }
 
   return hasRecentReturnContext(conversationHistory) && looksLikeReturnDetails(text);
 }
 
-export function getMissingReturnFields(classification, message = "") {
+export function getMissingReturnFields(classification, message = "", conversationHistory = []) {
   if (classification?.intent !== "return_request") return [];
 
-  const info = extractReturnInfo(message);
+  const info = extractReturnInfo(message, conversationHistory);
   return Object.keys(FIELD_LABELS).filter((field) => !info[field]);
 }
 
@@ -30,8 +30,8 @@ export function buildReturnHandoffReply() {
   return "請稍後，客服人員將很快為您服務。";
 }
 
-export function summarizeReturnInfo(message = "", attachments = []) {
-  const info = extractReturnInfo(message);
+export function summarizeReturnInfo(message = "", attachments = [], conversationHistory = []) {
+  const info = extractReturnInfo(message, conversationHistory);
   const photoCount = countPhotoAttachments(attachments);
   const parts = [
     info.delivery_no ? `送貨貨號：${info.delivery_no}` : "",
@@ -47,7 +47,35 @@ export function formatMissingReturnFields(fields = []) {
   return fields.map((field) => FIELD_LABELS[field] || field).join("、");
 }
 
-function extractReturnInfo(message = "") {
+function extractReturnInfo(message = "", conversationHistory = []) {
+  const current = extractReturnInfoFromText(message);
+  if (!conversationHistory.length) return current;
+
+  const previous = conversationHistory
+    .slice(-8)
+    .filter((item) => item.role === "customer")
+    .map((item) => extractReturnInfoFromText(item.content))
+    .reduce((acc, item) => ({
+      delivery_no: acc.delivery_no || item.delivery_no,
+      customer_name: acc.customer_name || item.customer_name,
+      phone: acc.phone || item.phone,
+      photos: acc.photos || item.photos
+    }), {
+      delivery_no: "",
+      customer_name: "",
+      phone: "",
+      photos: false
+    });
+
+  return {
+    delivery_no: current.delivery_no || previous.delivery_no,
+    customer_name: current.customer_name || previous.customer_name,
+    phone: current.phone || previous.phone,
+    photos: current.photos || previous.photos
+  };
+}
+
+function extractReturnInfoFromText(message = "") {
   const text = String(message || "").trim();
   const deliveryNo = text.match(/\b(?:RC|TRK|TRACK|SHIP|RAC|ORD|ORDER|O)[-_]?[A-Z0-9]{4,16}\b/i)?.[0] ||
     text.match(/(?:送貨貨號|貨號|物流單號|訂單編號)[:：\s]*([A-Z0-9-_]{4,20})/i)?.[1] ||
@@ -55,7 +83,9 @@ function extractReturnInfo(message = "") {
   const phone = text.match(/09\d{8}/)?.[0] ||
     text.match(/(?:電話|手機)[:：\s]*(\+?\d[\d\s-]{7,18})/)?.[1] ||
     "";
-  const name = text.match(/(?:名稱|姓名|名字)[:：\s]*([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z\s]{1,20})/)?.[1]?.trim() || "";
+  const name = text.match(/(?:名稱|姓名|名字)[:：\s]*([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z\s]{1,20})/)?.[1]?.trim() ||
+    inferUnlabeledName(text, { deliveryNo, phone }) ||
+    "";
   const photos = /照片|圖片|相片|影像|已上傳|已提供/.test(text);
 
   return {
@@ -73,7 +103,7 @@ function hasRecentReturnContext(conversationHistory = []) {
 }
 
 function looksLikeReturnDetails(message = "") {
-  return /(送貨貨號|貨號|物流單號|訂單編號|名稱|姓名|名字|電話|手機|照片|圖片|相片|09\d{8})/.test(String(message || ""));
+  return /(送貨貨號|貨號|物流單號|訂單編號|名稱|姓名|名字|電話|手機|照片|圖片|相片|09\d{8}|\b(?:RC|TRK|TRACK|SHIP|RAC|ORD|ORDER|O)[-_]?[A-Z0-9]{4,16}\b)/i.test(String(message || ""));
 }
 
 function isReturnPolicyQuestion(message = "") {
@@ -92,4 +122,17 @@ function normalizePhone(value) {
 
 function countPhotoAttachments(attachments = []) {
   return attachments.filter((item) => /^image\//.test(String(item.type || ""))).length;
+}
+
+function inferUnlabeledName(text, { deliveryNo, phone }) {
+  if (!deliveryNo || !phone) return "";
+
+  const cleaned = String(text || "")
+    .replace(deliveryNo, " ")
+    .replace(phone, " ")
+    .replace(/退貨資料|送貨貨號|貨號|物流單號|訂單編號|電話|手機|姓名|名字|名稱|只有這個/g, " ")
+    .replace(/[：:，,。.\s]+/g, " ")
+    .trim();
+  const candidates = cleaned.match(/[\u4e00-\u9fff]{2,4}/g) || [];
+  return candidates.find((candidate) => !/退貨|資料|電話|貨號|只有|這個/.test(candidate)) || "";
 }
