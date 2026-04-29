@@ -172,6 +172,24 @@ test("budget refinement keeps the previously recommended product eligible", () =
   assert.deepEqual(classification.exclude_product_codes || [], []);
 });
 
+test("keeps protected return/order intents out of product enrichment", () => {
+  const classification = enrichProductClassification({
+    intent: "return_request",
+    confidence: 0.9,
+    decision: "needs_review",
+    multi_intent: ["return_request", "order_status"],
+    missing_fields: []
+  }, "王小明 0912345678 RC123456789TW", [
+    { role: "customer", content: "我想找 2000 元內送禮商品" },
+    { role: "ai", content: "P002｜專注降噪耳機\n價格：NT$ 1680\n詳情連結：/products/P002" }
+  ]);
+
+  assert.equal(classification.intent, "return_request");
+  assert.equal(classification.decision, "needs_review");
+  assert.equal(classification.budget, undefined);
+  assert.deepEqual(classification.multi_intent, ["return_request", "order_status"]);
+});
+
 test("alternative follow-up still excludes products already shown", () => {
   const classification = enrichProductClassification({
     intent: "product_recommendation",

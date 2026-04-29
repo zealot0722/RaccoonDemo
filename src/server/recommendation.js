@@ -102,8 +102,9 @@ export function recommendProducts(products, classification) {
 }
 
 export function enrichProductClassification(classification, message, conversationHistory = []) {
-  if (classification?.intent === "unclear") return classification;
-  if (classification?.intent === "order_status") return classification;
+  if (hasMultipleIntents(classification) || isProtectedIntent(classification?.intent, message)) {
+    return classification;
+  }
   if (isBareOrderIdentifierText(message)) {
     return {
       ...classification,
@@ -137,7 +138,7 @@ export function enrichProductClassification(classification, message, conversatio
     (effectiveProductReference || followUp || messageBudget || messageUseCase || hasNegativePreference ||
       classification?.intent === "product_recommendation");
 
-  if (isProtectedIntent(classification?.intent) && !hasProductContinuation && !freshProductRequest) {
+  if (isProtectedIntent(classification?.intent, message) && !hasProductContinuation && !freshProductRequest) {
     return classification;
   }
 
@@ -390,8 +391,18 @@ function buildContextualKeywords(keywords = [], message = "") {
   return [...new Set([...(Array.isArray(keywords) ? keywords : []), ...direct, ...productCodes.map((code) => code.toUpperCase())])];
 }
 
-function isProtectedIntent(intent) {
-  return ["human_handoff", "complaint", "return_request", "order_status", "unclear"].includes(intent);
+function isProtectedIntent(intent, message = "") {
+  if (intent === "human_handoff") return isExplicitHumanHandoffText(message);
+  return ["complaint", "return_request", "order_status", "unclear"].includes(intent);
+}
+
+function hasMultipleIntents(classification) {
+  const intents = classification?.multi_intent || classification?.multiIntent;
+  return Array.isArray(intents) && intents.length > 1;
+}
+
+function isExplicitHumanHandoffText(message = "") {
+  return /真人|人工|專人|轉人工|客服人員|真人客服|人工客服|我要人處理|找人處理/.test(String(message || ""));
 }
 
 function isFreshProductRequest(message = "") {
