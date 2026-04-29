@@ -14,6 +14,13 @@ import {
   getMissingProductFields,
   recommendProducts
 } from "./recommendation.js";
+import {
+  buildReturnHandoffReply,
+  buildReturnInformationRequestReply,
+  getMissingReturnFields,
+  isReturnRequestMessage,
+  summarizeReturnInfo
+} from "./return-request.js";
 import { createRepository, generateTicketNo } from "./repository.js";
 
 export async function handleChat({ message, sessionId }, options = {}) {
@@ -51,11 +58,12 @@ export async function handleChat({ message, sessionId }, options = {}) {
         config: options.config,
         conversationHistory
       });
-  const classification = applyWorkflowRouting(classificationResult, cleanMessage);
+  const classification = applyWorkflowRouting(classificationResult, cleanMessage, conversationHistory);
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end";
 
   const missingProductFields = getMissingProductFields(classification);
   const missingOrderFields = getMissingOrderFields(classification, cleanMessage);
+  const missingReturnFields = getMissingReturnFields(classification, cleanMessage);
   const matchedFaq = classification.intent === "faq"
     ? findBestFaq(faqArticles, cleanMessage)
     : null;
@@ -76,6 +84,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     missingProductFields,
     orderStatus,
     missingOrderFields,
+    missingReturnFields,
     replyGenerationOk: true
   });
 
@@ -85,6 +94,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     decision,
     orderIdentifiers,
     orderStatus,
+    missingReturnFields,
     matchedFaq,
     recommendedProducts
   });
@@ -97,6 +107,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     decision,
     missingProductFields,
     missingOrderFields,
+    missingReturnFields,
     orderStatus,
     conversationHistory,
     conversationEnded,
@@ -144,6 +155,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
       ...classification,
       order_identifiers: orderIdentifiers,
       order_status: orderStatus,
+      missing_return_fields: missingReturnFields,
       support_summary: supportSummary,
       context_message_count: conversationHistory.length
     }
@@ -162,6 +174,7 @@ export async function handleChat({ message, sessionId }, options = {}) {
     recommendedProducts,
     missingProductFields,
     missingOrderFields,
+    missingReturnFields,
     orderStatus,
     conversationEnded,
     mode: repo.mode
@@ -176,6 +189,7 @@ async function buildReply({
   decision,
   missingProductFields,
   missingOrderFields,
+  missingReturnFields,
   orderStatus,
   conversationHistory,
   conversationEnded,
@@ -191,6 +205,14 @@ async function buildReply({
 
   if (classification.intent === "order_status" && orderStatus) {
     return buildOrderStatusReply(orderStatus);
+  }
+
+  if (classification.intent === "return_request" && missingReturnFields.length > 0) {
+    return buildReturnInformationRequestReply();
+  }
+
+  if (classification.intent === "return_request" && decision.decision === "needs_review") {
+    return buildReturnHandoffReply();
   }
 
   if (classification.intent === "order_status" && decision.decision === "needs_review") {
@@ -241,9 +263,20 @@ function buildMissingProductReply(fields) {
   return `可以的，我先幫您縮小範圍。\n請問您方便補充${formatMissingProductFields(fields)}嗎？`;
 }
 
-function applyWorkflowRouting(classification, message) {
+function applyWorkflowRouting(classification, message, conversationHistory = []) {
   if (["human_handoff", "complaint", "conversation_end"].includes(classification.intent)) {
     return classification;
+  }
+
+  if (isReturnRequestMessage(message, conversationHistory)) {
+    return {
+      ...classification,
+      intent: "return_request",
+      confidence: Math.max(Number(classification.confidence || 0), 0.82),
+      summary: classification.summary || "客戶提出退貨或退換貨申請",
+      missing_fields: getMissingReturnFields({ intent: "return_request" }, message),
+      keywords: [...new Set([...(classification.keywords || []), "退貨"])]
+    };
   }
 
   const identifiers = getOrderIdentifiers({}, message);
@@ -281,6 +314,7 @@ function appendContinuationPrompt(reply, {
   if (conversationEnded) return reply;
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) return reply;
   if (classification.intent === "order_status" && missingOrderFields.length > 0) return reply;
+  if (classification.intent === "return_request") return reply;
   if (/還有其他問題|還需要協助|其他問題需要協助/.test(reply)) return reply;
 
   return `${reply}\n\n請問您還有其他問題需要協助嗎？`;
@@ -292,6 +326,7 @@ function buildSupportSummary({
   decision,
   orderIdentifiers,
   orderStatus,
+  missingReturnFields,
   matchedFaq,
   recommendedProducts
 }) {
@@ -301,10 +336,16 @@ function buildSupportSummary({
     `處理決策：${decision.decision || "-"}`,
     matchedFaq ? `命中 FAQ：${matchedFaq.code}` : "",
     recommendedProducts.length ? `推薦商品：${recommendedProducts.map((item) => item.code).join(", ")}` : "",
-    orderIdentifiers.orderNo || orderIdentifiers.trackingNo
+    classification.intent === "order_status" && (orderIdentifiers.orderNo || orderIdentifiers.trackingNo)
       ? `查詢資料：${orderIdentifiers.orderNo || orderIdentifiers.trackingNo}`
       : "",
     orderStatus?.found ? `貨態：${orderStatus.status_label || orderStatus.status}` : "",
+    classification.intent === "return_request" && summarizeReturnInfo(message)
+      ? `退貨資料：${summarizeReturnInfo(message)}`
+      : "",
+    classification.intent === "return_request" && missingReturnFields?.length
+      ? `缺少退貨資料：${missingReturnFields.join(", ")}`
+      : "",
     decision.handoffReason ? `轉人工原因：${decision.handoffReason}` : ""
   ].filter(Boolean);
 

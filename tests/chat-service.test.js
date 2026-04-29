@@ -60,6 +60,35 @@ test("chat workflow creates needs_review ticket for human handoff", async () => 
   assert.match(result.decision.handoffReason, /真人客服/);
 });
 
+test("chat workflow asks for required return information before handoff", async () => {
+  const result = await handleChat({
+    message: "我要退貨",
+    sessionId: "test-session-return-missing"
+  });
+
+  assert.equal(result.classification.intent, "return_request");
+  assert.deepEqual(result.missingReturnFields, ["delivery_no", "customer_name", "phone", "photos"]);
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.match(result.reply, /請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片/);
+  assert.doesNotMatch(result.reply, /還有其他問題需要協助/);
+});
+
+test("chat workflow routes return requests with enough details to human review", async () => {
+  const repo = createReturnContextRepo();
+  const result = await handleChat({
+    message: "送貨貨號 RC123456789TW，名稱王小明，電話 0912345678，商品照片已提供",
+    sessionId: "return-session"
+  }, { repo });
+
+  assert.equal(result.classification.intent, "return_request");
+  assert.deepEqual(result.missingReturnFields, []);
+  assert.equal(result.decision.decision, "needs_review");
+  assert.equal(result.ticket.status, "needs_review");
+  assert.match(result.reply, /退貨資料整理到客服後台/);
+  assert.match(result.ticket.summary, /退貨資料/);
+  assert.doesNotMatch(result.ticket.summary, /查詢資料/);
+});
+
 test("chat workflow asks for order identifier before checking order status", async () => {
   const result = await handleChat({
     message: "我想查貨態",
@@ -311,6 +340,19 @@ function createContextRepo() {
       const record = { id: `decision-${decisions.length + 1}`, ...decision };
       decisions.push(record);
       return record;
+    }
+  };
+}
+
+function createReturnContextRepo() {
+  const repo = createContextRepo();
+  return {
+    ...repo,
+    async listRecentMessages() {
+      return [
+        { role: "customer", content: "我要退貨" },
+        { role: "ai", content: "請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片。" }
+      ];
     }
   };
 }

@@ -24,7 +24,7 @@
 
 本 demo 對應成：
 
-- `/api/chat`：格式化輸入、讀取近期對話、Groq 分類、查 FAQ/products/order_statuses、決策、寫入 tickets/messages/ai_decisions。
+- `/api/chat`：格式化輸入、讀取近期對話、Groq 分類、查 FAQ/products/order_statuses、判斷退貨資料是否足夠、決策、寫入 tickets/messages/ai_decisions。
 - `/api/tickets`：客服後台讀取工單與對話。
 - `/api/tickets/[id]/reply`：mock 客服回覆。
 - `/api/feedback`：客戶明確表示沒有其他問題後才顯示評分，寫入 `csat_feedback` 或回退寫入 `messages`。
@@ -64,7 +64,9 @@
 - 不說「請看右側」或「下方卡片」。
 - 條件不足時只追問必要條件。
 - 推薦商品時，訊息中直接列出商品代號、中文名稱、原文名稱、價格、庫存、適合情境、推薦理由與詳情連結。
+- 商品圖片由前端商品卡直接顯示，不在回覆文字中只丟圖片路徑。
 - 查貨態時，若缺少訂單編號或物流單號，先柔和追問；若查不到資料，建立待客服確認的工單。
+- 退貨申請先要求送貨貨號、名稱、電話號碼與商品照片；資料齊全後轉交客服人員人工判斷。
 - 一般回答完成後詢問「請問您還有其他問題需要協助嗎？」。
 - 使用者回覆「沒有了」、「謝謝」、「不用了」等結束語後，才顯示 CSAT 評分。
 - 明確結束語由本地規則直接判斷；模糊結束語交給 Groq 分類為 `conversation_end` 後才顯示評分。
@@ -82,6 +84,8 @@
 - 查貨態缺少訂單編號或物流單號：`decision = auto_reply`，只追問必要編號
 - 查貨態命中 `order_statuses` 或 demo fallback：`decision = auto_reply`
 - 查貨態查無資料：`decision = needs_review`，並把客戶訊息、查詢資料與轉人工原因整理到客服後台
+- 退貨申請缺少送貨貨號、名稱、電話號碼或商品照片：`decision = auto_reply`，請客戶補資料
+- 退貨申請資料齊全：`decision = needs_review`，整理退貨資料到客服後台
 
 ## 範例
 
@@ -145,6 +149,34 @@ Input:
 
 ```text
 我要找真人客服
+```
+
+### 退貨申請
+
+Input:
+
+```text
+我要退貨
+```
+
+Output:
+
+```text
+請提供您的送貨貨號、名稱、電話號碼等資料，以及商品的照片。
+收到資料後，我會把退貨申請轉交客服人員確認。
+```
+
+Follow-up input:
+
+```text
+送貨貨號 RC123456789TW，名稱王小明，電話 0912345678，商品照片已提供
+```
+
+Expected:
+
+```text
+十分抱歉造成您的不便。
+我已經把您提供的退貨資料整理到客服後台，客服人員會協助確認後續退貨處理。
 ```
 
 Output:

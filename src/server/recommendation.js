@@ -72,8 +72,7 @@ export function buildProductRecommendationReply(products, classification = {}) {
       `庫存：${product.stock_status || "請洽客服確認"}`,
       product.use_cases?.length ? `適合情境：${product.use_cases.slice(0, 3).join("、")}` : "",
       `推薦理由：${reason}`,
-      `詳情連結：${product.product_url || `/products/${product.code}`}`,
-      product.image_url ? `圖片：${product.image_url}` : ""
+      `詳情連結：${product.product_url || `/products/${product.code}`}`
     ].filter(Boolean).join("\n");
   });
 

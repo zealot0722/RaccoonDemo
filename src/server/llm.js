@@ -1,6 +1,7 @@
 import { getConfig, hasGroqConfig } from "./config.js";
 import { extractOrderIdentifiersFromText } from "./order-status.js";
 import { buildClassificationPrompt, buildReplyPrompt } from "./prompts.js";
+import { getMissingReturnFields, isReturnRequestMessage } from "./return-request.js";
 
 export async function classifyMessage(message, options = {}) {
   const config = options.config || getConfig();
@@ -68,6 +69,7 @@ function classifyWithHeuristics(message, conversationHistory = []) {
   const normalized = text.toLowerCase();
   const angry = /太差|客訴|投訴|不爽|生氣|爛|糟/.test(text);
   const wantsHuman = /真人|人工|客服|專人|轉人工|找人/.test(text);
+  const returnRequest = isReturnRequestMessage(text, conversationHistory);
   const orderStatus = /查貨|貨態|物流|配送進度|包裹|訂單|出貨|到貨了嗎|到貨沒|物流單號|訂單編號/.test(text);
   const faq = /退貨|退款|付款|配送|運送|保固|發票|換貨/.test(text);
   const product = /推薦|商品|預算|新手|送禮|禮物|耳機|保養|清潔|杯|入門|3c|家用/.test(normalized);
@@ -95,6 +97,20 @@ function classifyWithHeuristics(message, conversationHistory = []) {
       summary: "客戶提出客訴或負面服務體驗",
       keywords: ["客訴"]
     }, message);
+  }
+
+  if (returnRequest) {
+    const base = {
+      intent: "return_request",
+      confidence: 0.86,
+      tone: "neutral",
+      need_human: false,
+      summary: "客戶提出退貨或退換貨申請",
+      missing_fields: [],
+      keywords: extractKeywords(text, ["退貨", "退款", "換貨", "退換貨", "送貨貨號", "照片"])
+    };
+    base.missing_fields = getMissingReturnFields(base, text);
+    return normalizeClassification(base, message);
   }
 
   if (orderStatus) {
@@ -175,6 +191,7 @@ function fallbackReply({ classification, matchedFaq, recommendedProducts }) {
 function normalizeClassification(raw, message) {
   const intent = [
     "faq",
+    "return_request",
     "product_recommendation",
     "order_status",
     "complaint",
@@ -207,6 +224,17 @@ function normalizeClassification(raw, message) {
 function applyWorkflowGuardrails(classification, message) {
   if (["human_handoff", "complaint"].includes(classification.intent)) {
     return classification;
+  }
+
+  if (isReturnRequestMessage(message)) {
+    return {
+      ...classification,
+      intent: "return_request",
+      confidence: Math.max(classification.confidence, 0.82),
+      summary: classification.summary || "客戶提出退貨或退換貨申請",
+      missing_fields: getMissingReturnFields({ intent: "return_request" }, message),
+      keywords: [...new Set([...(classification.keywords || []), "退貨"])]
+    };
   }
 
   const identifiers = extractOrderIdentifiersFromText(message);

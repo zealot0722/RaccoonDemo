@@ -5,6 +5,7 @@ const HANDOFF_TEXT = {
   low_confidence: "AI 判斷信心不足，需要真人客服確認。",
   faq_miss: "FAQ 沒有命中足夠明確的答案，需要真人客服確認。",
   order_status_miss: "十分抱歉，目前沒有查到這筆貨態，需要客服人員協助確認。",
+  return_request_ready: "退貨申請已取得必要資料，需要客服人員人工判斷與接手。",
   generation_error: "AI 回覆產生失敗，需要真人客服接手。"
 };
 
@@ -15,7 +16,8 @@ export function decideNextAction({
   replyGenerationOk = true,
   missingProductFields = [],
   orderStatus = null,
-  missingOrderFields = []
+  missingOrderFields = [],
+  missingReturnFields = []
 }) {
   const reasons = [];
   const riskFlags = [];
@@ -55,6 +57,20 @@ export function decideNextAction({
       riskFlags,
       handoffReason: null
     };
+  }
+
+  if (intent === "return_request" && missingReturnFields.length > 0) {
+    reasons.push("退貨申請資料不足，先請客戶提供送貨貨號、名稱、電話號碼與商品照片。");
+    return {
+      decision: "auto_reply",
+      reasons,
+      riskFlags,
+      handoffReason: null
+    };
+  }
+
+  if (intent === "return_request") {
+    return needsReview("return_request_ready", reasons, ["return_request"]);
   }
 
   if (intent === "order_status" && missingOrderFields.length > 0) {

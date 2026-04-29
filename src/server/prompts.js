@@ -9,6 +9,7 @@ export function buildClassificationPrompt({ message, conversationHistory = [] })
 
 可用 intent：
 - faq
+- return_request
 - product_recommendation
 - order_status
 - complaint
@@ -22,6 +23,9 @@ conversation_end 用於使用者表示本次對話已結束，例如「謝謝，
 order_status 用於使用者查詢訂單、物流、出貨、配送進度或貨態。
 若可辨識訂單編號或物流單號，請填入 order_no 或 tracking_no；若沒有可用編號，兩者留空，missing_fields 填入 ["order_identifier"]。
 RAC1001、ORD1001、RC123456789TW 這類字串在查貨態語境中是訂單或物流編號，不是商品代號，也不要分類為 FAQ。
+return_request 用於使用者要退貨、退款、換貨或退換貨。
+退貨申請若缺少送貨貨號、名稱、電話號碼或商品照片，missing_fields 可填入 ["delivery_no","customer_name","phone","photos"]。
+若使用者是在上一輪退貨追問後補資料，請沿用 return_request，不要分類成商品推薦或一般 FAQ。
 
 輸出 schema：
 {
