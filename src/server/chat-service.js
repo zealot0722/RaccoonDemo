@@ -72,27 +72,34 @@ export async function handleChat({ message, sessionId, attachments = [] }, optio
   const classification = explicitConversationEnd
     ? routedClassification
     : enrichProductClassification(routedClassification, messageForClassification, conversationHistory);
+  const activeIntents = getActiveIntents(classification);
   const unclearTurnCount = isLowValueSupportTurn(classification, messageForClassification)
     ? countRecentLowValueCustomerTurns(conversationHistory) + 1
     : 0;
   const autoCloseForUnclear = LOW_VALUE_INTENTS.has(classification.intent) && unclearTurnCount >= 3;
   const conversationEnded = explicitConversationEnd || classification.intent === "conversation_end" || autoCloseForUnclear;
 
-  const missingProductFields = getMissingProductFields(classification);
-  const missingOrderFields = getMissingOrderFields(classification, cleanMessage);
-  const missingReturnFields = getMissingReturnFields(classification, messageForClassification, conversationHistory);
-  const matchedFaq = classification.intent === "faq"
+  const missingProductFields = activeIntents.has("product_recommendation")
+    ? getMissingProductFields(withIntent(classification, "product_recommendation"))
+    : [];
+  const missingOrderFields = activeIntents.has("order_status")
+    ? getMissingOrderFields(withIntent(classification, "order_status"), cleanMessage)
+    : [];
+  const missingReturnFields = activeIntents.has("return_request")
+    ? getMissingReturnFields(withIntent(classification, "return_request"), messageForClassification, conversationHistory)
+    : [];
+  const matchedFaq = activeIntents.has("faq")
     ? findBestFaq(faqArticles, cleanMessage)
     : null;
   const recommendedProducts = buildRecommendedProducts({
     products,
     classification,
     missingProductFields,
-    autoCloseForUnclear
+    activeIntents
   });
 
   const orderIdentifiers = getOrderIdentifiers(classification, cleanMessage);
-  const orderStatus = classification.intent === "order_status" && missingOrderFields.length === 0
+  const orderStatus = activeIntents.has("order_status") && missingOrderFields.length === 0
     ? await repo.findOrderStatus?.(orderIdentifiers)
     : null;
 
@@ -237,6 +244,23 @@ async function buildReply({
     return "謝謝您願意使用 Raccoon 客服。\n若方便的話，請為這次服務留下評分，您的回饋會協助我們把回覆調整得更貼近需求。";
   }
 
+  if (isProcessableMultiIntent(classification)) {
+    return buildMultiIntentReply({
+      classification,
+      matchedFaq,
+      recommendedProducts,
+      decision,
+      missingProductFields,
+      missingOrderFields,
+      missingReturnFields,
+      orderStatus
+    });
+  }
+
+  if (matchedFaq) {
+    return buildFaqReply(matchedFaq);
+  }
+
   if (classification.intent === "order_status" && missingOrderFields.length > 0) {
     return `可以，我幫您查貨態。\n請問您方便提供${formatMissingOrderFields()}嗎？`;
   }
@@ -254,7 +278,7 @@ async function buildReply({
   }
 
   if (classification.intent === "unclear") {
-    return buildUnclearReply(recommendedProducts);
+    return buildUnclearReply();
   }
 
   if (classification.intent === "chitchat") {
@@ -291,14 +315,10 @@ function buildRecommendedProducts({
   products,
   classification,
   missingProductFields,
-  autoCloseForUnclear
+  activeIntents = getActiveIntents(classification)
 }) {
-  if (classification.intent === "product_recommendation" && missingProductFields.length === 0) {
-    return recommendProducts(products, classification);
-  }
-
-  if (classification.intent === "unclear" && !autoCloseForUnclear) {
-    return products.slice(0, 3);
+  if (activeIntents.has("product_recommendation") && missingProductFields.length === 0) {
+    return recommendProducts(products, withIntent(classification, "product_recommendation"));
   }
 
   return [];
@@ -318,11 +338,63 @@ function buildMissingProductReply(fields) {
   return `可以的，我先幫您縮小範圍。\n請問您方便補充${formatMissingProductFields(fields)}嗎？`;
 }
 
-function buildUnclearReply(products = []) {
-  if (products.length) {
-    return "請您重新敘述您的問題，或者您可以考慮下面產品。\n如果您有退換貨、付款、配送、保固或查貨態需求，也可以直接提供相關資料。";
+function buildFaqReply(matchedFaq) {
+  return matchedFaq.answer;
+}
+
+function buildMultiIntentReply({
+  classification,
+  matchedFaq,
+  recommendedProducts,
+  decision,
+  missingProductFields,
+  missingOrderFields,
+  missingReturnFields,
+  orderStatus
+}) {
+  const activeIntents = getActiveIntents(classification);
+  const parts = [];
+
+  if (activeIntents.has("order_status")) {
+    if (missingOrderFields.length > 0) {
+      parts.push(`可以，我先幫您查貨態。\n請問您方便提供${formatMissingOrderFields()}嗎？`);
+    } else if (orderStatus?.found) {
+      parts.push(buildOrderStatusReply(orderStatus));
+    } else if (orderStatus && !orderStatus.found) {
+      parts.push("十分抱歉，目前沒有查到這筆貨態。\n請稍後，客服人員將很快為您服務。");
+    }
   }
 
+  if (activeIntents.has("faq") && matchedFaq) {
+    parts.push(buildFaqReply(matchedFaq));
+  }
+
+  if (activeIntents.has("return_request")) {
+    if (missingReturnFields.length > 0) {
+      parts.push(buildReturnInformationRequestReply());
+    } else {
+      parts.push("退貨資料已收到。\n請稍後，客服人員將很快為您服務。");
+    }
+  }
+
+  if (activeIntents.has("product_recommendation")) {
+    if (missingProductFields.length > 0) {
+      parts.push(buildMissingProductReply(missingProductFields));
+    } else if (recommendedProducts.length > 0) {
+      parts.push(buildProductRecommendationReply(recommendedProducts, classification));
+    } else {
+      parts.push("十分抱歉，目前沒有找到完全符合您條件的商品。\n您可以調整預算、用途或品類，我再幫您重新篩選。");
+    }
+  }
+
+  if (!parts.length && decision.decision === "needs_review") {
+    return "請稍後，客服人員將很快為您服務。";
+  }
+
+  return [...new Set(parts)].join("\n\n");
+}
+
+function buildUnclearReply() {
   return "請您重新敘述您的問題，或補充需要協助的事項。\n我可以協助退換貨、付款、配送、保固、查貨態或商品推薦。";
 }
 
@@ -335,7 +407,7 @@ function buildChitchatReply(turnCount) {
 }
 
 export function applyWorkflowRouting(classification, message, conversationHistory = []) {
-  const multiIntent = detectMultiIntent(message);
+  const multiIntent = detectMultiIntent(message, conversationHistory);
   if (multiIntent.length > 1) {
     return buildMultiIntentClassification(classification, message, conversationHistory, multiIntent);
   }
@@ -431,6 +503,8 @@ function appendContinuationPrompt(reply, {
   if (conversationEnded) return reply;
   if (decision?.decision === "needs_review") return reply;
   if (LOW_VALUE_INTENTS.has(classification.intent)) return reply;
+  if (classification.multi_intent?.length > 1) return reply;
+  if (classification.intent === "faq") return reply;
   if (classification.intent === "product_recommendation" && missingProductFields.length > 0) return reply;
   if (classification.intent === "order_status" && missingOrderFields.length > 0) return reply;
   if (classification.intent === "return_request") return reply;
@@ -538,15 +612,14 @@ function formatProductFollowUpSummary(classification = {}) {
   return `上下文：${labels[classification.follow_up] || classification.follow_up}${excluded}`;
 }
 
-function detectMultiIntent(message = "") {
+function detectMultiIntent(message = "", conversationHistory = []) {
   const text = String(message || "");
   const identifiers = getOrderIdentifiers({}, text);
   const intents = [];
+  const orderLookupCue = /查貨|貨態|物流|配送進度|出貨|到貨|訂單|請查|幫我查|順便查|包裹.*(到哪|在哪|位置|進度|還沒到)|(到哪|在哪|位置|進度|還沒到).*包裹|東西.*(在哪|到哪|位置)|(在哪|到哪|位置).*東西/.test(text);
 
-  if (isReturnRequestMessage(text, [])) intents.push("return_request");
-  if (/查貨|貨態|物流|配送進度|出貨|到貨|訂單|請查|幫我查|順便查|包裹.*(到哪|在哪|位置|進度|還沒到)|(到哪|在哪|位置|進度|還沒到).*包裹/.test(text) ||
-    identifiers.orderNo ||
-    identifiers.trackingNo) {
+  if (isReturnRequestMessage(text, conversationHistory)) intents.push("return_request");
+  if (orderLookupCue || ((identifiers.orderNo || identifiers.trackingNo) && hasRecentOrderContext(conversationHistory))) {
     intents.push("order_status");
   }
   if (/推薦|商品推薦|推薦商品|想找.*商品|想買|耳機|預算/.test(text)) {
@@ -561,18 +634,20 @@ function detectMultiIntent(message = "") {
 function buildMultiIntentClassification(classification, message, conversationHistory, multiIntent) {
   const primaryIntent = multiIntent.includes("human_handoff")
     ? "human_handoff"
-    : multiIntent.includes("return_request")
-      ? "return_request"
-      : multiIntent.includes("order_status")
+    : multiIntent.includes("order_status")
         ? "order_status"
-        : multiIntent[0];
+        : multiIntent.includes("return_request")
+          ? "return_request"
+          : multiIntent.includes("product_recommendation")
+            ? "product_recommendation"
+            : multiIntent[0];
   const identifiers = getOrderIdentifiers(classification, message);
   const labels = multiIntent.map(formatIntentLabel);
   const next = {
     ...classification,
     intent: primaryIntent,
     confidence: Math.max(Number(classification.confidence || 0), 0.84),
-    need_human: true,
+    need_human: multiIntent.includes("human_handoff"),
     summary: `客戶同時提出：${labels.join("、")}。原始內容：${String(message || "").slice(0, 80)}`,
     multi_intent: multiIntent,
     multi_intent_labels: labels,
@@ -611,4 +686,24 @@ function formatMultiIntentSummary(classification = {}, message = "") {
     ? classification.multi_intent_labels.join("、")
     : classification.multi_intent.map(formatIntentLabel).join("、");
   return `多需求：${labels}｜原始內容：${String(message || "").slice(0, 80)}`;
+}
+
+function getActiveIntents(classification = {}) {
+  const intents = classification.multi_intent || classification.multiIntent;
+  if (Array.isArray(intents) && intents.length) return new Set(intents);
+  return new Set([classification.intent].filter(Boolean));
+}
+
+function withIntent(classification = {}, intent) {
+  return {
+    ...classification,
+    intent
+  };
+}
+
+function isProcessableMultiIntent(classification = {}) {
+  const activeIntents = getActiveIntents(classification);
+  if (activeIntents.size <= 1) return false;
+  if (activeIntents.has("human_handoff") || activeIntents.has("complaint")) return false;
+  return true;
 }

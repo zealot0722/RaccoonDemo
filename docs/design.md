@@ -78,7 +78,7 @@
 - 明確結束語由本地規則直接判斷；模糊結束語交給 Groq 分類為 `conversation_end` 後才顯示評分。
 - 若句子同時包含新問題，例如「謝謝，那退貨怎麼辦？」，不可視為對話結束，應繼續回答問題。
 - 亂碼、無意義數字、無意義英文或符號會分類為 `unclear`；招呼語或純閒聊會分類為 `chitchat`。
-- `unclear` 第 1-2 次會請客戶重新敘述問題；若有商品資料，訊息可提示「您可以考慮下面產品」並顯示預設商品卡，但不把它當成正式商品推薦判斷。
+- `unclear` 第 1-2 次會請客戶重新敘述問題，不顯示商品卡；單獨 `?`、`？`、`??`、純符號與無意義數字都走此邏輯。
 - 同一客戶連續 3 次 `unclear/chitchat` 時，API 會回傳 `autoClosed = true`，前端鎖定輸入並顯示「若您無待處理問題，本次對話將會關閉」。
 - 客服後台左側工單欄固定高度並可滾動，上方顯示全部、未完成、待接手、緊急與已完成數量。
 
@@ -92,7 +92,7 @@
 - 商品推薦缺少預算或用途：`decision = auto_reply`，但只追問條件，不回傳商品
 - 商品推薦條件足夠：查 `products`，回傳 1-3 個商品並顯示在聊天訊息內
 - 商品推薦 follow-up：讀取近期 AI 回覆中的商品代號與價格；「有其他的嗎」排除前次商品，「更便宜一點」優先推薦更低價商品，後續補預算時以新預算重新排序。
-- `unclear`：`decision = auto_reply`，請客戶重新敘述問題；可附預設商品卡作為參考。
+- `unclear`：`decision = auto_reply`，請客戶重新敘述問題，不附預設商品卡。
 - `chitchat`：`decision = auto_reply`，請客戶描述實際客服需求。
 - 連續 3 次 `unclear/chitchat`：`conversationEnded = true` 並鎖定前端輸入。
 - 查貨態缺少訂單編號或物流單號：`decision = auto_reply`，只追問必要編號
@@ -100,6 +100,7 @@
 - 查貨態查無資料：`decision = needs_review`，並把客戶訊息、查詢資料與轉人工原因整理到客服後台
 - 退貨申請缺少送貨貨號、姓名或電話號碼：`decision = auto_reply`，請客戶補資料
 - 退貨申請資料齊全：`decision = needs_review`，整理退貨資料到客服後台
+- 多意圖：先拆出可處理的 `faq`、`order_status`、`product_recommendation`、`return_request` 逐步回覆；只有包含明確真人、客訴、低信心或退貨資料齊全需要人工判斷時才 `needs_review`。
 
 ## 範例
 

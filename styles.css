@@ -267,13 +267,15 @@ a:hover {
 }
 
 .message {
-  width: fit-content;
+  display: grid;
+  width: max-content;
   max-width: min(760px, 92%);
+  min-height: 0;
+  flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  line-height: 1.6;
+  line-height: 1.45;
   font-size: 14px;
-  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 
@@ -283,7 +285,9 @@ a:hover {
 }
 
 .message-content {
-  padding: 13px 14px;
+  padding: 9px 12px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .message.customer {
@@ -932,7 +936,8 @@ a:hover {
   }
 
   .message {
-    max-width: 92%;
+    width: fit-content;
+    max-width: min(760px, 92%);
   }
 
   .message:has(.message-products),

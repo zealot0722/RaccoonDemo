@@ -48,6 +48,7 @@ const rounds = [
     complaint("你們服務太差了"),
     chitchat("哈囉"),
     unclear("123123123"),
+    unclear("?"),
     ended("沒有了"),
     multiIntent("我要退貨，順便查 RAC1001 到哪")
   ],
@@ -64,6 +65,7 @@ const rounds = [
     complaint("我真的很不爽"),
     chitchat("你好"),
     unclear("asdfasdf"),
+    unclear("？"),
     ended("不用了"),
     multiIntent("幫我推薦耳機，也查一下 RAC1004")
   ],
@@ -80,6 +82,7 @@ const rounds = [
     complaint("這次處理很爛"),
     chitchat("在嗎"),
     unclear("zzzzzz"),
+    unclear("??"),
     ended("先這樣"),
     multiIntent("我要找真人，順便問保固")
   ],
@@ -96,6 +99,7 @@ const rounds = [
     complaint("客服態度很糟"),
     chitchat("hello"),
     unclear("??????"),
+    unclear("???"),
     ended("沒問題"),
     multiIntent("商品壞掉想退，請人工客服接手")
   ],
@@ -112,6 +116,7 @@ const rounds = [
     complaint("我要客訴"),
     chitchat("嗨"),
     unclear("0000000"),
+    unclear("   ?   "),
     ended("謝謝"),
     multiIntent("付款方式和配送進度都想問")
   ]
@@ -255,6 +260,7 @@ function assertExpectation(item, result) {
     case "unclear":
       assert.equal(result.classification.intent, "unclear", item.message);
       assert.equal(result.decision.decision, "auto_reply", item.message);
+      assert.equal(result.recommendedProducts.length, 0, item.message);
       break;
     case "ended":
       assert.equal(result.classification.intent, "conversation_end", item.message);
@@ -262,7 +268,11 @@ function assertExpectation(item, result) {
       break;
     case "multiIntent":
       assert.ok(result.classification.multi_intent?.length > 1, item.message);
-      assert.equal(result.decision.decision, "needs_review", item.message);
+      if (result.classification.multi_intent.includes("human_handoff")) {
+        assert.equal(result.decision.decision, "needs_review", item.message);
+      } else {
+        assert.equal(result.decision.decision, "auto_reply", item.message);
+      }
       break;
     default:
       throw new Error(`Unknown fuzzy semantic case kind: ${item.kind}`);

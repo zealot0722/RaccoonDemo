@@ -107,7 +107,39 @@ export function recommendProducts(products, classification) {
 }
 
 export function enrichProductClassification(classification, message, conversationHistory = []) {
-  if (hasMultipleIntents(classification) || isProtectedIntent(classification?.intent, message)) {
+  const multiIntents = classification?.multi_intent || classification?.multiIntent;
+  if (Array.isArray(multiIntents) && multiIntents.length) {
+    if (!multiIntents.includes("product_recommendation")) return classification;
+
+    const enrichedProduct = enrichProductClassification({
+      ...classification,
+      intent: "product_recommendation",
+      multi_intent: [],
+      multiIntent: undefined
+    }, message, conversationHistory);
+
+    return {
+      ...classification,
+      confidence: Math.max(Number(classification?.confidence || 0), Number(enrichedProduct.confidence || 0)),
+      budget: enrichedProduct.budget,
+      budget_min: enrichedProduct.budget_min,
+      budget_max: enrichedProduct.budget_max,
+      budget_relation: enrichedProduct.budget_relation,
+      category: enrichedProduct.category,
+      use_case: enrichedProduct.use_case,
+      follow_up: enrichedProduct.follow_up,
+      exclude_product_codes: enrichedProduct.exclude_product_codes,
+      exclude_categories: enrichedProduct.exclude_categories,
+      exclude_keywords: enrichedProduct.exclude_keywords,
+      reference_product_code: enrichedProduct.reference_product_code,
+      reference_price: enrichedProduct.reference_price,
+      keywords: [
+        ...new Set([...(classification?.keywords || []), ...(enrichedProduct.keywords || [])])
+      ]
+    };
+  }
+
+  if (isProtectedIntent(classification?.intent, message)) {
     return classification;
   }
   if (isBareOrderIdentifierText(message)) {
@@ -541,18 +573,14 @@ function isProtectedIntent(intent, message = "") {
   return ["complaint", "return_request", "order_status", "unclear"].includes(intent);
 }
 
-function hasMultipleIntents(classification) {
-  const intents = classification?.multi_intent || classification?.multiIntent;
-  return Array.isArray(intents) && intents.length > 1;
-}
-
 function isExplicitHumanHandoffText(message = "") {
   return /真人|人工|專人|轉人工|客服人員|真人客服|人工客服|我要人處理|找人處理/.test(String(message || ""));
 }
 
 function isFreshProductRequest(message = "") {
   const text = String(message || "");
-  if (/退貨|退款|換貨|付款|配送|運送|物流|貨態|保固|發票|真人|人工|專人|客訴|投訴/.test(text)) {
+  const explicitProductCue = /推薦|商品推薦|推薦商品|商品|產品|想找|想買|預算|新手|入門|送禮|禮物|耳機|保養|清潔|杯|3c/i.test(text);
+  if (/退貨|退款|換貨|付款|配送|運送|物流|貨態|保固|發票|真人|人工|專人|客訴|投訴/.test(text) && !explicitProductCue) {
     return false;
   }
 

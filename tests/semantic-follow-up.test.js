@@ -275,20 +275,20 @@ test("semantic follow-up guardrails apply negative product preferences", async (
   }
 });
 
-test("semantic follow-up guardrails surface multi-intent messages for review", async () => {
+test("semantic follow-up guardrails process multi-intent messages step by step", async () => {
   const cases = [
-    ["我要退貨，順便查 RAC1001 貨態", ["退貨", "貨態", "RAC1001"]],
-    ["我想先查貨態，但收到壞掉也想退", ["退貨", "貨態"]],
-    ["請查 RAC1001，然後我也要退貨", ["退貨", "RAC1001"]],
-    ["商品壞掉了，也想問保固", ["退貨", "保固"]],
-    ["先推薦耳機，另外我要找真人", ["推薦", "耳機", "真人"]]
+    ["我要退貨，順便查 RAC1001 貨態", "auto_reply", ["退貨", "貨態", "RAC1001"]],
+    ["我想先查貨態，但收到壞掉也想退", "auto_reply", ["退貨", "貨態"]],
+    ["請查 RAC1001，然後我也要退貨", "auto_reply", ["退貨", "RAC1001"]],
+    ["商品壞掉了，也想問保固", "auto_reply", ["退貨", "保固"]],
+    ["先推薦耳機，另外我要找真人", "needs_review", ["推薦", "耳機", "真人"]]
   ];
 
-  for (const [message, expectedSummaryParts] of cases) {
+  for (const [message, expectedDecision, expectedSummaryParts] of cases) {
     const result = await handleChat({ message, sessionId: `multi-intent-${message}` }, {
       repo: createRepo([])
     });
-    assert.equal(result.decision.decision, "needs_review", message);
+    assert.equal(result.decision.decision, expectedDecision, message);
     for (const part of expectedSummaryParts) {
       assert.match(result.ticket.summary, new RegExp(part), message);
     }

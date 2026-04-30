@@ -140,6 +140,9 @@ test("semantic guardrails keep return policy questions as FAQ", async () => {
   assert.equal(result.classification.intent, "faq");
   assert.equal(result.missingReturnFields.length, 0);
   assert.ok(result.matchedFaq);
+  assert.match(result.reply, /您可以參考以下流程/);
+  assert.doesNotMatch(result.reply, /^請問您還有其他問題需要協助嗎？$/);
+  assert.doesNotMatch(result.reply, /請問您還有其他問題需要協助嗎？/);
 });
 
 test("semantic guardrails route damaged product issues to return handling", async () => {
@@ -708,10 +711,33 @@ test("routes numeric gibberish away from product recommendations even with produ
 
   assert.equal(result.classification.intent, "unclear");
   assert.equal(result.conversationEnded, false);
-  assert.ok(result.recommendedProducts.length > 0);
+  assert.equal(result.recommendedProducts.length, 0);
   assert.match(result.reply, /請您重新敘述您的問題/);
-  assert.match(result.reply, /下面產品/);
+  assert.doesNotMatch(result.reply, /下面產品/);
   assert.doesNotMatch(result.reply, /依照您的需求/);
+});
+
+test("routes question-mark-only messages to unclear without product cards", async () => {
+  const cases = ["?", "？", "??", "???", "   ?   "];
+
+  for (const message of cases) {
+    const result = await handleChat({
+      message,
+      sessionId: `test-session-question-mark-${message.trim().length}`
+    }, {
+      repo: createContextRepo({
+        recentMessages: [
+          { role: "customer", content: "我想找 1000 元內的新手商品" },
+          { role: "ai", content: "P001｜入門保養組\n價格：NT$ 890\n詳情連結：/products/P001" }
+        ]
+      })
+    });
+
+    assert.equal(result.classification.intent, "unclear", message);
+    assert.equal(result.recommendedProducts.length, 0, message);
+    assert.match(result.reply, /請您重新敘述您的問題/, message);
+    assert.doesNotMatch(result.reply, /依照您的需求/, message);
+  }
 });
 
 test("keeps Groq product misclassification from turning gibberish into recommendations", async () => {
@@ -754,10 +780,41 @@ test("keeps Groq product misclassification from turning gibberish into recommend
 
     assert.equal(result.classification.intent, "unclear");
     assert.match(result.reply, /請您重新敘述您的問題/);
-    assert.ok(result.recommendedProducts.length > 0);
+    assert.equal(result.recommendedProducts.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("processable multi-intent order and return requests are answered in steps", async () => {
+  const result = await handleChat({
+    message: "我要退貨，順便查 RAC1001 貨態",
+    sessionId: "test-session-multi-return-order"
+  }, {
+    repo: createContextRepo({ recentMessages: [] })
+  });
+
+  assert.deepEqual(result.classification.multi_intent, ["return_request", "order_status"]);
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.equal(result.orderStatus.found, true);
+  assert.match(result.reply, /我幫您查到目前的貨態如下/);
+  assert.match(result.reply, /請提供您的送貨貨號、姓名、電話號碼/);
+  assert.match(result.ticket.summary, /多需求：退貨、貨態/);
+});
+
+test("multi-intent faq and product requests answer faq then recommend matching products", async () => {
+  const result = await handleChat({
+    message: "付款方式有哪些，也推薦我 2000 以下的耳機",
+    sessionId: "test-session-multi-faq-product"
+  });
+
+  assert.deepEqual(result.classification.multi_intent, ["product_recommendation", "faq"]);
+  assert.equal(result.decision.decision, "auto_reply");
+  assert.equal(result.matchedFaq?.code, "F002");
+  assert.equal(result.recommendedProducts[0]?.code, "P002");
+  assert.ok(result.recommendedProducts.every((product) => product.price <= 2000));
+  assert.match(result.reply, /目前支援信用卡/);
+  assert.match(result.reply, /P002｜行動辦公耳機/);
 });
 
 test("auto closes after three consecutive low-value customer turns", async () => {

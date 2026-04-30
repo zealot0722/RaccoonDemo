@@ -30,15 +30,13 @@ export function decideNextAction({
     return needsReview("generation_error", reasons, riskFlags);
   }
 
-  if (classification?.multi_intent?.length > 1) {
-    return needsReview("multi_intent", reasons, ["multi_intent"]);
-  }
+  const activeIntents = getActiveIntents(classification);
 
-  if (classification?.need_human || intent === "human_handoff") {
+  if (classification?.need_human || intent === "human_handoff" || activeIntents.has("human_handoff")) {
     return needsReview("human_handoff", reasons, riskFlags);
   }
 
-  if (intent === "complaint") {
+  if (intent === "complaint" || activeIntents.has("complaint")) {
     return needsReview("complaint", reasons, ["complaint"]);
   }
 
@@ -54,7 +52,7 @@ export function decideNextAction({
     return needsReview("low_confidence", reasons, ["low_confidence"]);
   }
 
-  if (intent === "product_recommendation" && missingProductFields.length > 0) {
+  if (activeIntents.has("product_recommendation") && missingProductFields.length > 0) {
     reasons.push("商品推薦條件不足，先追問必要條件。");
     return {
       decision: "auto_reply",
@@ -64,7 +62,7 @@ export function decideNextAction({
     };
   }
 
-  if (intent === "return_request" && missingReturnFields.length > 0) {
+  if (activeIntents.has("return_request") && missingReturnFields.length > 0) {
     reasons.push("退貨申請資料不足，先請客戶提供送貨貨號、姓名與電話號碼。");
     return {
       decision: "auto_reply",
@@ -74,11 +72,11 @@ export function decideNextAction({
     };
   }
 
-  if (intent === "return_request") {
+  if (activeIntents.has("return_request")) {
     return needsReview("return_request_ready", reasons, ["return_request"]);
   }
 
-  if (intent === "order_status" && missingOrderFields.length > 0) {
+  if (activeIntents.has("order_status") && missingOrderFields.length > 0) {
     reasons.push("查貨態資料不足，先追問訂單編號或物流單號。");
     return {
       decision: "auto_reply",
@@ -88,15 +86,15 @@ export function decideNextAction({
     };
   }
 
-  if (intent === "order_status" && orderStatus?.found) {
+  if (activeIntents.has("order_status") && orderStatus?.found) {
     reasons.push("已查到虛擬貨態資料。");
-  } else if (intent === "order_status" && orderStatus && !orderStatus.found) {
+  } else if (activeIntents.has("order_status") && orderStatus && !orderStatus.found) {
     return needsReview("order_status_miss", reasons, ["order_status_miss"]);
   }
 
-  if (intent === "product_recommendation" && recommendedProducts.length > 0) {
+  if (activeIntents.has("product_recommendation") && recommendedProducts.length > 0) {
     reasons.push("已找到符合條件的商品，將商品資訊放入聊天訊息。");
-  } else if (intent === "product_recommendation") {
+  } else if (activeIntents.has("product_recommendation")) {
     reasons.push("未找到符合條件的商品，不產生未查證商品。");
   } else if (intent === "unclear") {
     reasons.push("客戶輸入無法辨識，請客戶重新敘述問題。");
@@ -116,6 +114,12 @@ export function decideNextAction({
     riskFlags,
     handoffReason: null
   };
+}
+
+function getActiveIntents(classification = {}) {
+  const intents = classification?.multi_intent || classification?.multiIntent;
+  if (Array.isArray(intents) && intents.length) return new Set(intents);
+  return new Set([classification?.intent].filter(Boolean));
 }
 
 function needsReview(reasonKey, reasons, extraRiskFlags = []) {

@@ -19,7 +19,13 @@ test("customer chat keeps a bounded scroll area instead of stretching the page",
 
 test("chat bubbles fit their text instead of stretching across the message column", () => {
   assert.match(css, /\.messages\s*\{[\s\S]*align-items: flex-start;/);
-  assert.match(css, /\.message\s*\{[\s\S]*width: fit-content;/);
+  assert.match(css, /\.message\s*\{[\s\S]*display: grid;/);
+  assert.match(css, /\.message\s*\{[\s\S]*width: max-content;/);
+  assert.match(css, /\.message\s*\{[\s\S]*min-height: 0;/);
+  assert.match(css, /\.message\s*\{[\s\S]*flex-shrink: 0;/);
   assert.match(css, /\.message\.customer\s*\{[\s\S]*align-self: flex-end;/);
   assert.match(css, /\.message\.ai,\s*\n\.message\.system\s*\{[\s\S]*align-self: flex-start;/);
+  assert.match(css, /\.message-content\s*\{[\s\S]*padding: 9px 12px;/);
+  assert.match(css, /\.message-content\s*\{[\s\S]*white-space: pre-line;/);
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.message\s*\{[\s\S]*width: fit-content;/);
 });
