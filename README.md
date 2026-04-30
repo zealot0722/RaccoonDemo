@@ -29,7 +29,6 @@ supabase/patch_csat_feedback.sql  Production patch for older DBs without CSAT ta
 supabase/reset_demo_tickets.sql  Destructive SQL reset for demo tickets only
 docs/design.md          Prompt, criteria, architecture notes
 docs/test-cases.md      Demo test scripts
-docs/final-submission.md  Final answer draft for assignment questions 2 and 3
 index.html              Customer page and admin page shell
 app.js                  Frontend interaction
 styles.css              UI styles
