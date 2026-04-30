@@ -25,6 +25,7 @@ api/                    Vercel Serverless Functions
 src/server/             Groq, Supabase, decision, FAQ, recommendation, order-status logic
 supabase/schema.sql     Database schema, including csat_feedback and order_statuses
 supabase/seed.sql       Demo FAQ, product, and mock order-status data
+supabase/reset_demo_tickets.sql  Destructive SQL reset for demo tickets only
 docs/design.md          Prompt, criteria, architecture notes
 docs/test-cases.md      Demo test scripts
 index.html              Customer page and admin page shell
@@ -42,6 +43,13 @@ styles.css              UI styles
    - `SUPABASE_SERVICE_ROLE_KEY`
 
 `SUPABASE_SERVICE_ROLE_KEY` 只能放在 Vercel 後端環境變數，不可放到前端。
+
+若 demo 後台累積太多測試工單，可在 Supabase SQL Editor 執行 `supabase/reset_demo_tickets.sql`，清空目前工單並建立 `T001` 到 `T004` 測試工單。也可以在本機設定 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` 後執行：
+
+```powershell
+$env:CONFIRM_RESET_DEMO_TICKETS='YES'
+& 'D:\DevTools\nodejs\node.exe' scripts/reset-demo-tickets.mjs
+```
 
 ## Vercel 環境變數
 

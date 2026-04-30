@@ -225,6 +225,7 @@ test("builds product recommendations with details and links inside the reply", (
     use_case: "新手入門"
   });
 
+  assert.match(reply, /^依照您的需求，為您推薦以下選項/);
   assert.match(reply, /P001｜入門保養組/);
   assert.match(reply, /詳情連結：\/products\/P001/);
   assert.doesNotMatch(reply, /推薦理由/);

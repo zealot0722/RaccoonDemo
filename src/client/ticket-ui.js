@@ -10,6 +10,14 @@ export const TICKET_PRIORITY_OPTIONS = [
   { value: "high", label: "緊急" }
 ];
 
+export const TICKET_FILTER_OPTIONS = [
+  { value: "all", label: "全部" },
+  { value: "unfinished", label: "未完成" },
+  { value: "needs_review", label: "待接手" },
+  { value: "urgent", label: "緊急" },
+  { value: "completed", label: "已完成" }
+];
+
 export function getTicketStatusMeta(status) {
   if (["closed", "resolved"].includes(status)) {
     return { label: "已完成", className: "done" };
@@ -60,6 +68,27 @@ export function summarizeTicketStats(tickets = []) {
   }
 
   return stats;
+}
+
+export function getTicketFilterLabel(segment) {
+  return TICKET_FILTER_OPTIONS.find((option) => option.value === segment)?.label || "全部";
+}
+
+export function filterTicketsBySegment(tickets = [], segment = "all") {
+  if (segment === "all") return tickets;
+
+  return tickets.filter((ticket) => {
+    const status = ticket.status || "";
+    const tone = ticket.ai_decision?.tone || ticket.tone;
+    const priorityMeta = getTicketPriorityMeta(ticket.priority, tone);
+
+    if (segment === "unfinished") return !["closed", "resolved"].includes(status);
+    if (segment === "needs_review") return status === "needs_review";
+    if (segment === "urgent") return priorityMeta.label === "緊急";
+    if (segment === "completed") return ["closed", "resolved"].includes(status);
+
+    return true;
+  });
 }
 
 export function normalizeTicketUpdate(input = {}) {

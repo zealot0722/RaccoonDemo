@@ -1,7 +1,10 @@
 import { canSendChatMessage, lockChatAfterFeedback } from "./src/client/chat-lock.js";
 import {
+  TICKET_FILTER_OPTIONS,
   TICKET_PRIORITY_OPTIONS,
   TICKET_STATUS_OPTIONS,
+  filterTicketsBySegment,
+  getTicketFilterLabel,
   getTicketPriorityMeta,
   getTicketStatusMeta,
   summarizeTicketStats
@@ -78,6 +81,7 @@ const state = {
   lastResult: restoredState.lastResult || null,
   tickets: [],
   selectedTicketId: null,
+  activeTicketFilter: "all",
   sessionId: restoredState.sessionId || getSessionId(),
   accessCodeRequired: false,
   accessCode: sessionStorage.getItem("raccoon-demo-access-code") || "",
@@ -464,7 +468,19 @@ function renderTickets() {
     return;
   }
 
-  els.ticketList.innerHTML = state.tickets
+  const visibleTickets = filterTicketsBySegment(state.tickets, state.activeTicketFilter);
+  if (!visibleTickets.some((ticket) => ticket.id === state.selectedTicketId)) {
+    state.selectedTicketId = visibleTickets[0]?.id || null;
+  }
+
+  if (!visibleTickets.length) {
+    const label = getTicketFilterLabel(state.activeTicketFilter);
+    els.ticketList.innerHTML = `<div class="empty">目前沒有${escapeHtml(label)}工單。</div>`;
+    els.ticketDetail.innerHTML = '<div class="empty">請選擇其他分類查看工單。</div>';
+    return;
+  }
+
+  els.ticketList.innerHTML = visibleTickets
     .map((ticket) => {
       const statusMeta = getTicketStatusMeta(ticket.status);
       const priorityMeta = getTicketPriorityMeta(ticket.priority, ticket.ai_decision?.tone);
@@ -493,19 +509,38 @@ function renderTickets() {
     });
   });
 
-  renderTicketDetail(state.tickets.find((ticket) => ticket.id === state.selectedTicketId));
+  renderTicketDetail(visibleTickets.find((ticket) => ticket.id === state.selectedTicketId));
 }
 
 function renderTicketStats() {
   if (!els.ticketStats) return;
   const stats = summarizeTicketStats(state.tickets);
-  els.ticketStats.innerHTML = `
-    <div class="stat-item"><span>全部</span><strong>${stats.total}</strong></div>
-    <div class="stat-item"><span>未完成</span><strong>${stats.unfinished}</strong></div>
-    <div class="stat-item"><span>待接手</span><strong>${stats.needsReview}</strong></div>
-    <div class="stat-item warn"><span>緊急</span><strong>${stats.urgent}</strong></div>
-    <div class="stat-item"><span>已完成</span><strong>${stats.completed}</strong></div>
-  `;
+  const counts = {
+    all: stats.total,
+    unfinished: stats.unfinished,
+    needs_review: stats.needsReview,
+    urgent: stats.urgent,
+    completed: stats.completed
+  };
+  els.ticketStats.innerHTML = TICKET_FILTER_OPTIONS.map((option) => `
+    <button
+      type="button"
+      class="stat-item ${option.value === "urgent" ? "warn" : ""} ${state.activeTicketFilter === option.value ? "active" : ""}"
+      data-ticket-filter="${escapeAttr(option.value)}"
+      aria-pressed="${state.activeTicketFilter === option.value ? "true" : "false"}"
+    >
+      <span>${escapeHtml(option.label)}</span>
+      <strong>${counts[option.value] || 0}</strong>
+    </button>
+  `).join("");
+
+  els.ticketStats.querySelectorAll("[data-ticket-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeTicketFilter = button.dataset.ticketFilter || "all";
+      renderTicketStats();
+      renderTickets();
+    });
+  });
 }
 
 function renderTicketDetail(ticket) {

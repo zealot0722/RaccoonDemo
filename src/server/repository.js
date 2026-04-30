@@ -1,49 +1,18 @@
 import { demoFaqArticles, demoOrderStatuses, demoProducts } from "./demo-data.js";
+import { demoAiDecisions, demoMessages, demoTickets } from "./demo-ticket-fixtures.js";
 import { getConfig, hasSupabaseConfig } from "./config.js";
 import { normalizeTicketUpdate } from "../client/ticket-ui.js";
 
 const memory = {
-  tickets: [
-    {
-      id: "demo-ticket-001",
-      ticket_no: "T001",
-      customer_id: "demo",
-      status: "needs_review",
-      summary: "客戶要求真人客服",
-      intent: "human_handoff",
-      priority: "normal",
-      handoff_reason: "您已要求真人客服協助，系統會建立待處理工單。",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
-  ],
-  messages: [
-    {
-      id: "demo-message-001",
-      ticket_id: "demo-ticket-001",
-      role: "customer",
-      content: "我要找真人客服",
-      created_at: new Date().toISOString()
-    }
-  ],
-  decisions: [
-    {
-      id: "demo-decision-001",
-      ticket_id: "demo-ticket-001",
-      intent: "human_handoff",
-      confidence: 0.92,
-      tone: "neutral",
-      decision: "needs_review",
-      reasons: ["您已要求真人客服協助，系統會建立待處理工單。"],
-      risk_flags: [],
-      matched_faq_code: null,
-      recommended_product_codes: [],
-      handoff_reason: "您已要求真人客服協助，系統會建立待處理工單。",
-      created_at: new Date().toISOString()
-    }
-  ],
+  tickets: cloneFixtures(demoTickets),
+  messages: cloneFixtures(demoMessages),
+  decisions: cloneFixtures(demoAiDecisions),
   feedback: []
 };
+
+function cloneFixtures(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
 export function createRepository(config = getConfig()) {
   return hasSupabaseConfig(config)

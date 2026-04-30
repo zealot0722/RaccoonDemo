@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.js",
+    "reset:demo-tickets": "node scripts/reset-demo-tickets.mjs",
     "test": "node --test --test-isolation=none",
-    "check": "node --check app.js && node --check scripts/dev-server.js && node --check src/client/chat-lock.js && node --check src/client/ticket-ui.js && node --check src/server/message-quality.js && node --check src/server/chat-service.js && node --check src/server/llm.js && node --check src/server/prompts.js && node --check api/chat.js && node --check api/feedback.js && node --check api/health.js && node --check api/tickets/index.js && node --check api/tickets/[id].js && node --check api/tickets/[id]/reply.js"
+    "check": "node --check app.js && node --check scripts/dev-server.js && node --check scripts/reset-demo-tickets.mjs && node --check src/client/chat-lock.js && node --check src/client/ticket-ui.js && node --check src/server/demo-ticket-fixtures.js && node --check src/server/message-quality.js && node --check src/server/chat-service.js && node --check src/server/llm.js && node --check src/server/prompts.js && node --check api/chat.js && node --check api/feedback.js && node --check api/health.js && node --check api/tickets/index.js && node --check api/tickets/[id].js && node --check api/tickets/[id]/reply.js"
   },
   "engines": {
     "node": ">=20"

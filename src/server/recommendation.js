@@ -245,7 +245,7 @@ export function buildProductRecommendationReply(products, classification = {}) {
     return "目前沒有找到完全符合您條件的商品。\n請您調整預算、用途或品類後再試一次。";
   }
 
-  const intro = "依照您的需求，我先幫您整理幾個比較適合的選項。";
+  const intro = "依照您的需求，為您推薦以下選項。";
   const details = products.map((product) => {
     return [
       `${product.code}｜${product.name_zh}`,
