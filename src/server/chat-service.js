@@ -30,6 +30,9 @@ import {
 } from "./return-request.js";
 import { createRepository, generateTicketNo } from "./repository.js";
 
+const RETURN_POLICY_FAQ_CODE = "F001";
+const RETURN_POLICY_FLOW_REPLY = "您可以參考以下流程：先確認商品狀態與訂單資料，再提供送貨貨號、姓名、電話號碼。若商品破損、瑕疵或少件，也可以上傳商品照片供客服參考。收到必要資料後，客服人員會協助確認退貨或換貨處理。";
+
 export async function handleChat({ message, sessionId, attachments = [] }, options = {}) {
   const repo = options.repo || createRepository(options.config);
   const cleanMessage = String(message || "").trim();
@@ -339,6 +342,10 @@ function buildMissingProductReply(fields) {
 }
 
 function buildFaqReply(matchedFaq) {
+  if (matchedFaq.code === RETURN_POLICY_FAQ_CODE) {
+    return RETURN_POLICY_FLOW_REPLY;
+  }
+
   return matchedFaq.answer;
 }
 

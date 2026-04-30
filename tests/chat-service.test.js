@@ -109,6 +109,52 @@ test("chat workflow treats above-budget wording as a price floor", async () => {
   assert.ok(result.recommendedProducts.every((product) => product.price >= 1000));
 });
 
+test("chat workflow corrects Groq budget-floor classifications without prior context", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: "product_recommendation",
+              confidence: 0.82,
+              summary: "客戶提出價格下限",
+              tone: "neutral",
+              budget: 1000,
+              missing_fields: [],
+              keywords: ["1000以上"]
+            })
+          }
+        }
+      ]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await handleChat({
+      message: "1000以上的",
+      sessionId: "test-session-groq-budget-floor-no-context"
+    }, {
+      repo: createContextRepo({ recentMessages: [] }),
+      config: {
+        groqApiKey: "test-groq-key",
+        classifierModel: "test-classifier",
+        replyModel: "test-reply"
+      }
+    });
+
+    assert.equal(result.classification.intent, "product_recommendation");
+    assert.equal(result.classification.budget_min, 1000);
+    assert.ok(result.recommendedProducts.every((product) => product.price >= 1000));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("chat workflow treats cheaper follow-up as a product refinement", async () => {
   const repo = createContextRepo({
     recentMessages: [
@@ -143,6 +189,32 @@ test("semantic guardrails keep return policy questions as FAQ", async () => {
   assert.match(result.reply, /您可以參考以下流程/);
   assert.doesNotMatch(result.reply, /^請問您還有其他問題需要協助嗎？$/);
   assert.doesNotMatch(result.reply, /請問您還有其他問題需要協助嗎？/);
+});
+
+test("return FAQ reply uses the local flow even when database FAQ content is stale", async () => {
+  const repo = createContextRepo({ recentMessages: [] });
+  const result = await handleChat({
+    message: "請問商品可以退貨嗎？",
+    sessionId: "semantic-return-policy-stale-db"
+  }, {
+    repo: {
+      ...repo,
+      async listFaqArticles() {
+        return [{
+          code: "F001",
+          title: "退換貨政策",
+          question: "商品可以退貨或換貨嗎？",
+          keywords: ["退貨", "換貨"],
+          answer: "商品到貨後七天內可申請退換貨，請保留完整包裝與購買資訊。"
+        }];
+      }
+    }
+  });
+
+  assert.equal(result.classification.intent, "faq");
+  assert.equal(result.matchedFaq?.code, "F001");
+  assert.match(result.reply, /您可以參考以下流程/);
+  assert.match(result.reply, /送貨貨號、姓名、電話號碼/);
 });
 
 test("semantic guardrails route damaged product issues to return handling", async () => {

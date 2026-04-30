@@ -161,6 +161,7 @@ export function enrichProductClassification(classification, message, conversatio
   const productReference = resolveProductReference(message, context);
   const followUp = inferProductFollowUp(message, context);
   const messageBudgetConstraint = extractBudgetConstraint(message);
+  const hasMessageBudgetConstraint = Boolean(messageBudgetConstraint.relation);
   const messageBudget = messageBudgetConstraint.amount || extractBudget(message);
   const messageUseCase = inferUseCaseFromText(message);
   const negativePreferences = extractNegativePreferences(message, context);
@@ -175,17 +176,17 @@ export function enrichProductClassification(classification, message, conversatio
   const hasProductContinuation = context.hasProductContext &&
     (effectiveProductReference || followUp || messageBudget || messageUseCase || hasNegativePreference ||
       classification?.intent === "product_recommendation");
+  const shouldNormalizeClassifierProduct = classification?.intent === "product_recommendation" && hasMessageBudgetConstraint;
 
   if (isProtectedIntent(classification?.intent, message) && !hasProductContinuation && !freshProductRequest) {
     return classification;
   }
 
-  if (!freshProductRequest && !hasProductContinuation) return classification;
+  if (!freshProductRequest && !hasProductContinuation && !shouldNormalizeClassifierProduct) return classification;
 
   const contextFollowUp = context.hasProductContext
     ? effectiveProductReference ? "product_reference" : followUp || (messageBudget ? "budget_refinement" : "context_continuation")
     : classification?.follow_up || "";
-  const hasMessageBudgetConstraint = Boolean(messageBudgetConstraint.relation);
   const nextBudgetMin = hasMessageBudgetConstraint
     ? messageBudgetConstraint.min ?? null
     : normalizeBudget(classification?.budget_min) ?? context.lastBudgetMin ?? null;
