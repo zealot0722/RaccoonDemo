@@ -1,7 +1,7 @@
 -- Destructive demo reset: removes current tickets and recreates a small test set.
 -- Run this only in the Raccoon demo Supabase project.
 
-delete from tickets;
+truncate table tickets restart identity cascade;
 
 insert into tickets (
   id, ticket_no, customer_id, status, summary, intent, priority, handoff_reason, created_at, updated_at
