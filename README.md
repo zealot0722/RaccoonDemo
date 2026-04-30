@@ -25,9 +25,11 @@ api/                    Vercel Serverless Functions
 src/server/             Groq, Supabase, decision, FAQ, recommendation, order-status logic
 supabase/schema.sql     Database schema, including csat_feedback and order_statuses
 supabase/seed.sql       Demo FAQ, product, and mock order-status data
+supabase/patch_csat_feedback.sql  Production patch for older DBs without CSAT table
 supabase/reset_demo_tickets.sql  Destructive SQL reset for demo tickets only
 docs/design.md          Prompt, criteria, architecture notes
 docs/test-cases.md      Demo test scripts
+docs/final-submission.md  Final answer draft for assignment questions 2 and 3
 index.html              Customer page and admin page shell
 app.js                  Frontend interaction
 styles.css              UI styles
@@ -50,6 +52,8 @@ styles.css              UI styles
 $env:CONFIRM_RESET_DEMO_TICKETS='YES'
 & 'D:\DevTools\nodejs\node.exe' scripts/reset-demo-tickets.mjs
 ```
+
+若 production DB 是較早建立的版本，請先在 Supabase SQL Editor 執行 `supabase/patch_csat_feedback.sql`，讓評分資料寫入正式 `csat_feedback` 表，而不是 fallback 到 `messages`。
 
 ## Vercel 環境變數
 
